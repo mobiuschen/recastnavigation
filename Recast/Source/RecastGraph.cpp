@@ -10,17 +10,14 @@ rcGraph* rcAllocGraph()
     return result;
 }
 
-bool rcBuildGraph(rcContext* ctx, const rcPolyMesh* pmesh, rcGraph& graph)
+bool rcBuildGraph(rcContext* ctx, const rcPolyMesh& pmesh, rcGraph& graph)
 {
     unsigned int length = 0;
-    int maxEdages = 0;
+    int maxEdages = pmesh.npolys == 0 ? 0 : (pmesh.npolys - 1) * 2;
     int nedges = 0;
 
-    if (pmesh == nullptr)
-        return false;
+    graph.nverts = pmesh.npolys;
 
-    graph.nverts = pmesh->npolys;
-    maxEdages = (graph.nverts - 1) * 2;
 
     length = graph.nverts;
     graph.verts = (rcGraph*)rcAlloc(sizeof(rcGraph) * length, RC_ALLOC_PERM);
@@ -56,29 +53,28 @@ bool rcBuildGraph(rcContext* ctx, const rcPolyMesh* pmesh, rcGraph& graph)
     }
     memset(edges, RC_MESH_NULL_IDX, sizeof(unsigned short) * length);
 
+    const int nvp = pmesh.nvp;
     //In Level 0, every graph represents a poly.
-    for (int i = 0, n = pmesh->npolys; i < n; i++)
+    for (int i = 0, n = pmesh.npolys; i < n; i++)
     {
-        unsigned short* p = &(pmesh->polys[i * pmesh->nvp * 2]);
-        unsigned short* polyVerts = &(pmesh->polys[i * pmesh->nvp * 2]);
-        unsigned short* polyAdjs = &(p[pmesh->nvp]);
-
+        unsigned short* p = &(pmesh.polys[i * nvp * 2]);
+        rcGraph graphVert = graph.verts[i];
         // set vertex
-        graph.verts[i].verts = nullptr;
-        graph.verts[i].weights = nullptr;
-        graph.verts[i].edges = nullptr;
-        graph.verts[i].nverts = 0;
-        graph.verts[i].poly = (unsigned short)i;
+        graphVert.verts = nullptr;
+        graphVert.weights = nullptr;
+        graphVert.edges = nullptr;
+        graphVert.nverts = 0;
+        graphVert.poly = (unsigned short)i;
 
         // build edges
-        for (int j = 0, m = pmesh->nvp; j < m; j++)
+        for (int j = 0, m = nvp; j < m; j++)
         {
-            if (polyVerts[j] == RC_MESH_NULL_IDX || polyAdjs[j] == RC_MESH_NULL_IDX)
-                break;
+            unsigned short* pAdj = &(p[nvp]);
+            if (p[j] == RC_MESH_NULL_IDX) break;
+            if (pAdj[j] & 0x8000) continue;
 
-            unsigned short adjPoly = polyAdjs[j];
-            int bigP = i > adjPoly ? adjPoly : i;
-            int smallP = i > adjPoly ? i : adjPoly;
+            int bigP = i > pAdj[j] ? pAdj[j] : i;
+            int smallP = i > pAdj[j] ? i : pAdj[j];
 
             bool findEdge = false;
             for (int k = 0; k < nedges; k++)
@@ -94,17 +90,18 @@ bool rcBuildGraph(rcContext* ctx, const rcPolyMesh* pmesh, rcGraph& graph)
                 }
             }//for
 
-            if (findEdge)
-                break;
-
-            edges[nedges] = (unsigned short)smallP;
-            edges[nedges + 1] = (unsigned short)bigP;
-            nedges++;
+            if (!findEdge)
+            {
+                edges[nedges] = (unsigned short)smallP;
+                edges[nedges + 1] = (unsigned short)bigP;
+                nedges++;
+            }
         }//for
     }//for
 
     length = nedges * 2;
     graph.edges = (unsigned short*)rcAlloc(sizeof(unsigned short) * length, RC_ALLOC_PERM);
+    graph.nedges = nedges;
     memcpy(graph.edges, edges, sizeof(unsigned short) * length);
 
     return true;

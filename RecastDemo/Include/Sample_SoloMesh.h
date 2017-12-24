@@ -22,6 +22,7 @@
 #include "Sample.h"
 #include "DetourNavMesh.h"
 #include "Recast.h"
+#include "RecastGraph.h"
 
 class Sample_SoloMesh : public Sample
 {
@@ -32,8 +33,9 @@ protected:
 	unsigned char* m_triareas;
 	rcHeightfield* m_solid;
 	rcCompactHeightfield* m_chf;
-	rcContourSet* m_cset;
-	rcPolyMesh* m_pmesh;
+    rcContourSet* m_cset;
+    rcPolyMesh* m_pmesh;
+    rcGraph* m_graph;
 	rcConfig m_cfg;	
 	rcPolyMeshDetail* m_dmesh;
 	
@@ -56,6 +58,7 @@ protected:
 		DRAWMODE_CONTOURS,
 		DRAWMODE_POLYMESH,
 		DRAWMODE_POLYMESH_DETAIL,
+        DRAWMODE_HIERACHICAL_NAVMESH,
 		MAX_DRAWMODE
 	};
 	

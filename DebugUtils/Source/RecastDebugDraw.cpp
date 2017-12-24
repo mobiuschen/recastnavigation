@@ -21,6 +21,7 @@
 #include "DebugDraw.h"
 #include "RecastDebugDraw.h"
 #include "Recast.h"
+#include "RecastGraph.h"
 
 void duDebugDrawTriMesh(duDebugDraw* dd, const float* verts, int /*nverts*/,
 						const int* tris, const float* normals, int ntris,
@@ -861,43 +862,43 @@ void duDebugDrawPolyMesh(duDebugDraw* dd, const struct rcPolyMesh& mesh)
 	const float cs = mesh.cs;
 	const float ch = mesh.ch;
 	const float* orig = mesh.bmin;
-	
-	dd->begin(DU_DRAW_TRIS);
-	
-	for (int i = 0; i < mesh.npolys; ++i)
-	{
-		const unsigned short* p = &mesh.polys[i*nvp*2];
-		const unsigned char area = mesh.areas[i];
-		
-		unsigned int color;
-		if (area == RC_WALKABLE_AREA)
-			color = duRGBA(0,192,255,64);
-		else if (area == RC_NULL_AREA)
-			color = duRGBA(0,0,0,64);
-		else
-			color = dd->areaToCol(area);
-		
-		unsigned short vi[3];
-		for (int j = 2; j < nvp; ++j)
-		{
-			if (p[j] == RC_MESH_NULL_IDX) break;
-			vi[0] = p[0];
-			vi[1] = p[j-1];
-			vi[2] = p[j];
-			for (int k = 0; k < 3; ++k)
-			{
-				const unsigned short* v = &mesh.verts[vi[k]*3];
-				const float x = orig[0] + v[0]*cs;
-				const float y = orig[1] + (v[1]+1)*ch;
-				const float z = orig[2] + v[2]*cs;
-				dd->vertex(x,y,z, color);
-			}
-		}
-	}
-	dd->end();
 
-	// Draw neighbours edges
-	const unsigned int coln = duRGBA(0,48,64,32);
+    dd->begin(DU_DRAW_TRIS);
+
+    for (int i = 0; i < mesh.npolys; ++i)
+    {
+        const unsigned short* p = &mesh.polys[i*nvp * 2];
+        const unsigned char area = mesh.areas[i];
+
+        unsigned int color;
+         if (area == RC_WALKABLE_AREA)
+             color = duRGBA(0, 192, 255, 64);
+         else if (area == RC_NULL_AREA)
+             color = duRGBA(0, 0, 0, 64);
+         else
+             color = dd->areaToCol(area);
+
+        unsigned short vi[3];
+        for (int j = 2; j < nvp; ++j)
+        {
+            if (p[j] == RC_MESH_NULL_IDX) break;
+            vi[0] = p[0];
+            vi[1] = p[j - 1];
+            vi[2] = p[j];
+            for (int k = 0; k < 3; ++k)
+            {
+                const unsigned short* v = &mesh.verts[vi[k] * 3];
+                const float x = orig[0] + v[0] * cs;
+                const float y = orig[1] + (v[1] + 1)*ch;
+                const float z = orig[2] + v[2] * cs;
+                dd->vertex(x, y, z, color);
+            }
+        }
+    }
+    dd->end();
+
+    // Draw neighbours edges
+    const unsigned int coln = duRGBA(0, 48, 64, 32);
 	dd->begin(DU_DRAW_LINES, 1.5f);
 	for (int i = 0; i < mesh.npolys; ++i)
 	{
@@ -1061,4 +1062,62 @@ void duDebugDrawPolyMeshDetail(duDebugDraw* dd, const struct rcPolyMeshDetail& d
 			dd->vertex(&verts[j*3], colv);
 	}
 	dd->end();
+}
+
+void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraph& graph)
+{
+    //TODO
+    if (dd == nullptr) return;
+    
+    //dd->begin(DU_DRAW_TRIS);
+//     for (int i = 0; i < mesh.npolys; ++i)
+//     {
+//         const unsigned short* p = &mesh.polys[i*nvp * 2];
+//         const unsigned char area = mesh.areas[i];
+// 
+//         unsigned int color;
+//         if (area == RC_WALKABLE_AREA)
+//             color = duRGBA(0, 192, 255, 64);
+//         else if (area == RC_NULL_AREA)
+//             color = duRGBA(0, 0, 0, 64);
+//         else
+//             color = dd->areaToCol(area);
+// 
+//         unsigned short vi[3];
+//         for (int j = 2; j < nvp; ++j)
+//         {
+//             if (p[j] == RC_MESH_NULL_IDX) break;
+//             vi[0] = p[0];
+//             vi[1] = p[j - 1];
+//             vi[2] = p[j];
+//             for (int k = 0; k < 3; ++k)
+//             {
+//                 const unsigned short* v = &mesh.verts[vi[k] * 3];
+//                 const float x = orig[0] + v[0] * cs;
+//                 const float y = orig[1] + (v[1] + 1)*ch;
+//                 const float z = orig[2] + v[2] * cs;
+//                 dd->vertex(x, y, z, color);
+//             }
+//         }
+//     }
+//     dd->end();
+}
+
+
+bool GetAllPolyFromGraph(const rcGraph& graph, unsigned short* retPoly, unsigned int& retNumPoly)
+{
+    if (graph.nverts == 0)
+    {
+        // It's level 0 graph.
+        retPoly[retNumPoly] = graph.poly;
+        retNumPoly++;
+    }
+    else
+    {
+        for (int i = 0, n = graph.nverts; i < n; i++)
+        {
+            GetAllPolyFromGraph(graph.verts[i], retPoly, retNumPoly);
+        }
+    }
+    return true;
 }

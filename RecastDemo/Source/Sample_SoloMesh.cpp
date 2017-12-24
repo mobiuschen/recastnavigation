@@ -52,6 +52,7 @@ Sample_SoloMesh::Sample_SoloMesh() :
 	m_cset(0),
 	m_pmesh(0),
 	m_dmesh(0),
+    m_graph(0),
 	m_drawMode(DRAWMODE_NAVMESH)
 {
 	setTool(new NavMeshTesterTool);
@@ -78,6 +79,8 @@ void Sample_SoloMesh::cleanup()
 	m_dmesh = 0;
 	dtFreeNavMesh(m_navMesh);
 	m_navMesh = 0;
+    rcFreeGraph(m_graph);
+    m_graph = 0;
 }
 			
 void Sample_SoloMesh::handleSettings()
@@ -156,8 +159,9 @@ void Sample_SoloMesh::handleDebugMode()
 		valid[DRAWMODE_RAW_CONTOURS] = m_cset != 0;
 		valid[DRAWMODE_BOTH_CONTOURS] = m_cset != 0;
 		valid[DRAWMODE_CONTOURS] = m_cset != 0;
-		valid[DRAWMODE_POLYMESH] = m_pmesh != 0;
-		valid[DRAWMODE_POLYMESH_DETAIL] = m_dmesh != 0;
+        valid[DRAWMODE_POLYMESH] = m_pmesh != 0;
+        valid[DRAWMODE_POLYMESH_DETAIL] = m_dmesh != 0;
+        valid[DRAWMODE_HIERACHICAL_NAVMESH] = m_graph != 0;
 	}
 	
 	int unavail = 0;
@@ -202,6 +206,8 @@ void Sample_SoloMesh::handleDebugMode()
 		m_drawMode = DRAWMODE_POLYMESH;
 	if (imguiCheck("Poly Mesh Detail", m_drawMode == DRAWMODE_POLYMESH_DETAIL, valid[DRAWMODE_POLYMESH_DETAIL]))
 		m_drawMode = DRAWMODE_POLYMESH_DETAIL;
+    if (imguiCheck("Hierarchical NavMesh Graph", m_drawMode == DRAWMODE_HIERACHICAL_NAVMESH, valid[DRAWMODE_HIERACHICAL_NAVMESH]))
+        m_drawMode = DRAWMODE_HIERACHICAL_NAVMESH;
 		
 	if (unavail)
 	{
@@ -316,6 +322,12 @@ void Sample_SoloMesh::handleRender()
 		duDebugDrawPolyMeshDetail(&m_dd, *m_dmesh);
 		glDepthMask(GL_TRUE);
 	}
+    if (m_graph && m_drawMode == DRAWMODE_HIERACHICAL_NAVMESH)
+    {
+        glDepthMask(GL_FALSE);
+        duDebugDrawGraph(&m_dd, *m_graph);
+        glDepthMask(GL_TRUE);
+    }
 	
 	m_geom->drawConvexVolumes(&m_dd);
 
@@ -604,7 +616,7 @@ bool Sample_SoloMesh::handleBuild()
 	m_dmesh = rcAllocPolyMeshDetail();
 	if (!m_dmesh)
 	{
-		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'pmdtl'.");
+		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'm_dmesh'.");
 		return false;
 	}
 
@@ -721,6 +733,24 @@ bool Sample_SoloMesh::handleBuild()
 		}
 	}
 	
+
+    //
+    // (Optional) Step 9. Create the hierachical nevmesh graph from poly mesh.
+    //
+    m_graph = rcAllocGraph();
+    if (!m_graph)
+    {
+        m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'm_graph'.");
+        return false;
+    }
+
+    if (!rcBuildGraph(m_ctx, *m_pmesh, *m_graph))
+    {
+        m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not build graph.");
+        return false;
+    }
+
+
 	m_ctx->stopTimer(RC_TIMER_TOTAL);
 
 	// Show performance stats.
