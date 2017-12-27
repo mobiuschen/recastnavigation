@@ -325,7 +325,7 @@ void Sample_SoloMesh::handleRender()
     if (m_graph && m_drawMode == DRAWMODE_HIERACHICAL_NAVMESH)
     {
         glDepthMask(GL_FALSE);
-        duDebugDrawGraph(&m_dd, *m_graph);
+        duDebugDrawGraph(&m_dd, *m_graph, *m_pmesh);
         glDepthMask(GL_TRUE);
     }
 	

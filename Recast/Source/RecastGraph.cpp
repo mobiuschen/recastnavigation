@@ -12,12 +12,12 @@ rcGraph* rcAllocGraph()
 
 bool rcBuildGraph(rcContext* ctx, const rcPolyMesh& pmesh, rcGraph& graph)
 {
-    unsigned int length = 0;
-    int maxEdages = pmesh.npolys == 0 ? 0 : (pmesh.npolys - 1) * 2;
+    const int maxEdages = pmesh.npolys > 0 ? ((pmesh.npolys - 1) * 2) : 0;
+    const int nvp = pmesh.nvp;
+    int length = 0;    
     int nedges = 0;
 
     graph.nverts = pmesh.npolys;
-
 
     length = graph.nverts;
     graph.verts = (rcGraph*)rcAlloc(sizeof(rcGraph) * length, RC_ALLOC_PERM);
@@ -34,15 +34,7 @@ bool rcBuildGraph(rcContext* ctx, const rcPolyMesh& pmesh, rcGraph& graph)
         ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'graph.weights' (%d).", length);
         return false;
     }
-    memset(graph.weights, 1, sizeof(unsigned short) * length);
-
-    length = maxEdages * 2;
-    graph.edges = (unsigned short*)rcAlloc(sizeof(unsigned short) * length, RC_ALLOC_PERM);
-    if (!graph.edges)
-    {
-        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'graph.edges' (%d).", length);
-        return false;
-    }
+    memset(graph.weights, 0, sizeof(unsigned short) * length);
 
     length = maxEdages * 2;
     rcScopedDelete<unsigned short> edges((unsigned short*)rcAlloc(sizeof(unsigned short) * length, RC_ALLOC_TEMP));
@@ -53,17 +45,17 @@ bool rcBuildGraph(rcContext* ctx, const rcPolyMesh& pmesh, rcGraph& graph)
     }
     memset(edges, RC_MESH_NULL_IDX, sizeof(unsigned short) * length);
 
-    const int nvp = pmesh.nvp;
     //In Level 0, every graph represents a poly.
     for (int i = 0, n = pmesh.npolys; i < n; i++)
     {
         unsigned short* p = &(pmesh.polys[i * nvp * 2]);
-        rcGraph graphVert = graph.verts[i];
+        rcGraph& graphVert = graph.verts[i];
         // set vertex
         graphVert.verts = nullptr;
         graphVert.weights = nullptr;
         graphVert.edges = nullptr;
         graphVert.nverts = 0;
+        graphVert.nedges = 0;
         graphVert.poly = (unsigned short)i;
 
         // build edges
