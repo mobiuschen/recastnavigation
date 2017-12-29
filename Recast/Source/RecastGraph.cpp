@@ -83,3 +83,120 @@ void rcFreeGraph(rcGraph* pGraph)
     rcFree(pGraph->weights);
     rcFree(pGraph);
 }
+
+
+bool rcGraphMerge(rcContext* ctx, rcGraph& g1, rcGraph& g2, rcGraphSet& graphSet)
+{
+    int level = g1.level;
+    if (g1.level >= g2.level || level <= 0)
+    {
+        ctx->log(RC_LOG_ERROR, "TODO");
+        return false;
+    }
+
+    rcGraph& topGraph = graphSet.graphs[level];
+    int index1;
+    int index2;
+    for (int i = 0, n = topGraph.nverts; i < n; i++)
+    {
+        if (index1 >= 0 && index2 >= 0)
+            break;
+
+        if (topGraph.verts[i] == g1.id)
+            index1 = i;
+
+        if (topGraph.verts[i] == g2.id)
+            index2 = i;
+    }
+
+    if (index1 == index2)
+    {
+        ctx->log(RC_LOG_ERROR, "TODO");
+        return false;
+    }
+
+    const int nverts = topGraph.nverts;
+    int newVertsNum = g1.nverts + g2.nverts;
+
+    if (topGraph.edgeMatrix[index1 * nverts + index2] <= 0)
+    {
+        // These two are not adjacent.
+        ctx->log(RC_LOG_ERROR, "TODO");
+        return false;
+    }
+
+    if (g2.verts == 0)
+        return true;
+
+    // handle edge cut
+    topGraph.edgeMatrix[index1 * nverts + index2] = 0;
+    topGraph.edgeMatrix[index2 * nverts + index1] = 0;
+    for (int i = 0, n = nverts; i < n; i++)
+    {
+        Weight weight = topGraph.edgeMatrix[index2 * nverts + i];
+        if (i != index1 && weight > 0)
+        {
+            topGraph.edgeMatrix[index1 * nverts + i] += weight;
+            topGraph.edgeMatrix[i * nverts + index1] += weight;
+        }
+    }
+    //handle intra edge
+    // TODO need to optimize
+    {
+        int length = newVertsNum * newVertsNum;
+        rcScopedDelete<Weight> tempEdgeMatrix((Weight*)rcAlloc(sizeof(Weight) * length, RC_ALLOC_TEMP));
+        for (int i = 0, n = g1.nverts; i < n; i++)
+        {
+            for (int j = 0, m = g1.nverts; j < m; j++)
+            {
+                tempEdgeMatrix[i*length + j] = g1.edgeMatrix[i*g1.nverts + j];
+                tempEdgeMatrix[j*length + i] = g1.edgeMatrix[j*g1.nverts + i];
+            }
+        }
+        memcpy(g1.edgeMatrix, tempEdgeMatrix, sizeof(tempEdgeMatrix));
+    }
+
+    rcGraph& lowerTopGraph = graphSet.graphs[level - 1];
+    for (int i = 0, n = g2.nverts; i < n; i++)
+    {
+        const GraphID childID2 = g1.verts[i];
+        const int cindex2 = getGraphIndexInLevel(level - 1, childID2, graphSet);
+
+        for (int j = 0, m = g1.nverts; j < m; j++)
+        {
+            const GraphID childID1 = g1.verts[j];
+            const int cindex1 = getGraphIndexInLevel(level - 1, childID1, graphSet);
+            const Weight w = lowerTopGraph.edgeMatrix[cindex1 * lowerTopGraph.nverts + cindex2];
+            if (w > 0)
+            {
+                // new intra edge
+                g1.edgeMatrix[j * newVertsNum + g1.nverts] = w;
+                g1.edgeMatrix[g1.nverts * newVertsNum + j] = w;
+            }
+        }
+
+        // new vertex
+        g1.verts[g1.nverts] = childID2;
+        g1.nverts++;
+    }
+
+}
+
+int getGraphIndexInLevel(int level, const GraphID graphID, const rcGraphSet& graphSet)
+{
+    if (level < graphSet.ngraphs)
+        return -1;
+
+    rcGraph& topGraph = graphSet.graphs[level];
+    int index = -1;
+    for (int i = 0, n = topGraph.nverts; i < n; i++)
+    {
+        if (topGraph.verts[i] == graphID)
+        {
+            index = i;
+            break;
+        }
+    }
+
+    return index;
+}
