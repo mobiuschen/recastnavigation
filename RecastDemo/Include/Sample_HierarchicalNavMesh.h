@@ -9,7 +9,7 @@
 class Sample_HierarchicalNavMesh : public Sample_SoloMesh {
 
 private:
-	rcGraph m_graph;
+	rcGraph m_graphSet;
 public:
 	Sample_HierarchicalNavMesh();
 	virtual ~Sample_HierarchicalNavMesh();

@@ -1,20 +1,19 @@
 #ifndef RECASTGRAPH_H
 #define RECASTGRAPH_H
 
-// G0, rcGraph.verts == nullptr;
-// G1, rcGraph.verts ?[Element: index]
-// G1, rcGraph.verts ?[Element: rcGraph*] 
-// G1, rcGraph.verts ?[Element: rcGraph] 
 
 typedef unsigned short GraphID;
 typedef unsigned short Weight;
 
+class rcContext;
+struct rcPolyMesh;
 struct rcGraph;
-
+struct rcGraphEdge;
 
 struct rcGraph
 {
     unsigned short level;
+    unsigned short poly;
     GraphID id;
     GraphID* verts;         ///< In level 0, the element is poly id. In higher level, the element is graph id. [Element: index * nverts]
     Weight* weights;        ///< The weight of vertices. [Length: #nverts]
@@ -31,17 +30,15 @@ struct rcGraphEdge
 
 struct rcGraphSet
 {
-    rcPolyMesh* pmesh;          ///
     rcGraph* graphs;            ///< All the graphs in different level.
     int ngraphs;
-    int* topGraphs;  /// Top graph of diferent levels.
+    GraphID* topGraphs;             /// Top graph of diferent levels.
     int maxedge;
 };
 
-struct rcPolyMesh;
-class rcContext;
 
-rcGraph* rcAllocGraph();
-bool rcBuildGraph(rcContext* ctx, const rcPolyMesh& pmesh, rcGraph& graph);
+rcGraphSet* rcAllocGraphSet(rcContext* ctx, int npoly, int level);
+bool rcBuildGraphSet(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphSet& graphSet, const int level);
+void rcFreeGraphSet(rcGraphSet* pGraphSet);
 void rcFreeGraph(rcGraph* pGraph);
 #endif

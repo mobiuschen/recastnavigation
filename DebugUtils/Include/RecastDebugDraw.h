@@ -39,6 +39,6 @@ void duDebugDrawRawContours(struct duDebugDraw* dd, const struct rcContourSet& c
 void duDebugDrawContours(struct duDebugDraw* dd, const struct rcContourSet& cset, const float alpha = 1.0f);
 void duDebugDrawPolyMesh(struct duDebugDraw* dd, const struct rcPolyMesh& mesh);
 void duDebugDrawPolyMeshDetail(struct duDebugDraw* dd, const struct rcPolyMeshDetail& dmesh);
-void duDebugDrawGraph(struct duDebugDraw* dd, const struct rcGraph& graph, const struct rcPolyMesh& pmesh);
+void duDebugDrawGraph(struct duDebugDraw* dd, const struct rcGraphSet& graphSet, const struct rcPolyMesh& pmesh);
 
 #endif // RECAST_DEBUGDRAW_H

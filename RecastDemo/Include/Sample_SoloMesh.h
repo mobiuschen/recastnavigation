@@ -35,7 +35,7 @@ protected:
 	rcCompactHeightfield* m_chf;
     rcContourSet* m_cset;
     rcPolyMesh* m_pmesh;
-    rcGraph* m_graph;
+    rcGraphSet* m_graphSet;
 	rcConfig m_cfg;	
 	rcPolyMeshDetail* m_dmesh;
 	

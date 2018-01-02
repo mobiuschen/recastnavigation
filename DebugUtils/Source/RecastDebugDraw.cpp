@@ -23,7 +23,7 @@
 #include "Recast.h"
 #include "RecastGraph.h"
 
-bool getPolysFromGraph(const rcGraph& graph, unsigned short* retPoly, unsigned int& retNumPoly);
+bool getPolysFromGraph(const struct rcGraphSet& graphSet, const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly);
 
 bool drawPolyTris(duDebugDraw* dd, const unsigned short* poly, unsigned int color, const struct rcPolyMesh& pmesh);
 
@@ -1054,19 +1054,21 @@ void duDebugDrawPolyMeshDetail(duDebugDraw* dd, const struct rcPolyMeshDetail& d
     dd->end();
 }
 
-void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraph& graph, const struct rcPolyMesh& pmesh)
+void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraphSet& graphSet, const struct rcPolyMesh& pmesh)
 {
     if (dd == nullptr) return;
 
     const int MAX_POLY_NUM = 512;
     unsigned short polys[MAX_POLY_NUM];
-    const int nverts = graph.nverts;
+    GraphID graphID0 = graphSet.topGraphs[0];
+    const rcGraph& g0 = graphSet.graphs[graphID0];
 
     dd->begin(DU_DRAW_TRIS);
-    for (int i = 0; i < nverts; ++i)
+    for (int i = 0, n = g0.nverts; i < n; ++i)
     {
         unsigned int npoly = 0;
-        getPolysFromGraph(graph.verts[i], polys, npoly);
+        GraphID gid = g0.verts[i];
+        getPolysFromGraph(graphSet, graphSet.graphs[gid], polys, npoly);
 
         // draw polys
         for (int j = 0, m = npoly; j < m; j++)
@@ -1081,7 +1083,7 @@ void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraph& graph, const struct
 }
 
 
-bool getPolysFromGraph(const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly)
+bool getPolysFromGraph(const struct rcGraphSet& graphSet, const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly)
 {
     if (graph.nverts == 0)
     {
@@ -1093,7 +1095,8 @@ bool getPolysFromGraph(const rcGraph& graph, unsigned short* retPolys, unsigned 
     {
         for (int i = 0, n = graph.nverts; i < n; i++)
         {
-            getPolysFromGraph(graph.verts[i], retPolys, retNpoly);
+            GraphID gid = graph.verts[i];
+            getPolysFromGraph(graphSet, graphSet.graphs[gid], retPolys, retNpoly);
         }
     }
     return true;
