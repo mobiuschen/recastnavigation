@@ -8,11 +8,12 @@ typedef unsigned short Weight;
 class rcContext;
 struct rcPolyMesh;
 struct rcGraph;
-struct rcGraphEdge;
+//struct rcGraphEdge;
+
+const unsigned short MAX_POLY_NUM = 5120;
 
 struct rcGraph
 {
-    unsigned short level;
     unsigned short poly;
     GraphID id;
     GraphID* verts;         ///< In level 0, the element is poly id. In higher level, the element is graph id. [Element: index * nverts]
@@ -21,12 +22,12 @@ struct rcGraph
     int nverts;
 };
 
-struct rcGraphEdge
-{
-    GraphID adjvert;
-    Weight weight;
-    rcGraphEdge* next;
-};
+//struct rcGraphEdge
+//{
+//    GraphID adjvert;
+//    Weight weight;
+//    rcGraphEdge* next;
+//};
 
 struct rcGraphSet
 {
