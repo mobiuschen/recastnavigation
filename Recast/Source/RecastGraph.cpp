@@ -2,11 +2,56 @@
 #include <stdlib.h>
 #include "Recast.h"
 #include "RecastAlloc.h"
+#include "RecastAssert.h"
 #include "RecastGraph.h"
+
+struct Matching
+{
+    GraphID         list[MAX_POLY_NUM];
+    Weight          weightList[MAX_POLY_NUM];
+    unsigned short  length;
+};
+
+struct rcGraphPool
+{
+    rcGraph*        pool;
+    unsigned short  size;
+    unsigned short  capacity;
+};
+
 
 inline Weight isAdjVerts(const rcGraph& graph, int uidx, int vidx)
 {
     return graph.edgeMatrix[uidx * graph.nverts + vidx];
+}
+
+
+static rcGraph* allocGraghFromPool(rcGraphPool& graphPool, GraphID& retGraphID)
+{
+    retGraphID = RC_GRAPH_ID_NULL;
+    if (graphPool.size >= graphPool.capacity)
+        return nullptr;
+
+    rcGraph* graph = &(graphPool.pool[graphPool.size]);
+    retGraphID = graphPool.size;
+    graphPool.size++;
+    memset(graph, 0, sizeof(rcGraph));
+    return graph;
+}
+
+static bool freeGraphPool(rcGraphPool& graphPool)
+{
+    for (int i = 0, n = graphPool.size; i < n; i++)
+    {
+        rcGraph* pGraph = &(graphPool.pool[i]);
+        rcFreeGraph(pGraph);
+        pGraph = nullptr;
+    }
+    rcFree(graphPool.pool);
+    graphPool.pool = nullptr;
+    graphPool.size = 0;
+    graphPool.capacity = 0;
+    return true;
 }
 
 //static int getGraphIndexInLevel(int level, const GraphID graphID, const rcGraphSet& graphSet)
@@ -62,9 +107,8 @@ static int getRandomGraphVert(const rcGraph& graph, bool* travelledAry)
 
     if (!findFlag)
     {
-        return -1;
+        selectIdx = -1;
     }
-
     return selectIdx;
 }
 
@@ -99,246 +143,187 @@ Exit0:
     return totalWeight;
 }
 
+// Heavy Edge Matching (HEM)
+static bool heavyEdgeMatching(rcContext*        ctx,
+                              const rcGraph&    graph,
+                              rcGraphPool&      graphPool,
+                              Matching&         retMatching)
+{
+    bool result = false;
+    const unsigned short nverts = graph.nverts;
+    bool retCode = false;
+    bool matchedFlags[MAX_POLY_NUM];
+    for (int i = 0, n = graph.nverts; i < n; i++)
+    {
+        // select a random vertex u
+        int uIdx = getRandomGraphVert(graph, matchedFlags);
+        if (uIdx < 0)
+            break;
 
-//static bool mergeGraphs(rcContext* ctx, rcGraph& dest, const rcGraph& src, rcGraphSet& graphSet)
-//{
-//    int level = dest.level;
-//    if (dest.level >= src.level || level <= 0)
-//    {
-//        ctx->log(RC_LOG_ERROR, "TODO");
-//        return false;
-//    }
-//
-//    rcGraph& topGraph = graphSet.graphs[level];
-//    int index1;
-//    int index2;
-//    for (int i = 0, n = topGraph.nverts; i < n; i++)
-//    {
-//        if (index1 >= 0 && index2 >= 0)
-//            break;
-//
-//        if (topGraph.verts[i] == dest.id)
-//            index1 = i;
-//
-//        if (topGraph.verts[i] == src.id)
-//            index2 = i;
-//    }
-//
-//    if (index1 == index2)
-//    {
-//        ctx->log(RC_LOG_ERROR, "TODO");
-//        return false;
-//    }
-//
-//    const int nverts = topGraph.nverts;
-//    if (topGraph.edgeMatrix[index1 * nverts + index2] <= 0)
-//    {
-//        // These two are not neighbour.
-//        ctx->log(RC_LOG_ERROR, "TODO");
-//        return false;
-//    }
-//
-//    if (src.verts == 0)
-//        return true;
-//
-//    // handle the edge cuts
-//    topGraph.edgeMatrix[index1 * nverts + index2] = 0;
-//    topGraph.edgeMatrix[index2 * nverts + index1] = 0;
-//    for (int i = 0, n = nverts; i < n; i++)
-//    {
-//        Weight weight = topGraph.edgeMatrix[index2 * nverts + i];
-//        if (i != index1 && weight > 0)
-//        {
-//            topGraph.edgeMatrix[index1 * nverts + i] += weight;
-//            topGraph.edgeMatrix[i * nverts + index1] += weight;
-//        }
-//    }
-//
-//    //handle the intra edges and vertcies
-//    const int newVertsNum = dest.nverts + src.nverts;
-//    // TODO need to optimize
-//    {
-//        // Expand the size of edge matrix.
-//        int length = newVertsNum * newVertsNum;
-//        Weight* edgeMatrix = (Weight*)rcAlloc(sizeof(Weight) * length, RC_ALLOC_PERM);
-//        for (int i = 0, n = dest.nverts; i < n; i++)
-//        {
-//            for (int j = 0, m = dest.nverts; j < m; j++)
-//            {
-//                edgeMatrix[i*length + j] = dest.edgeMatrix[i*dest.nverts + j];
-//                edgeMatrix[j*length + i] = dest.edgeMatrix[j*dest.nverts + i];
-//            }
-//        }
-//
-//        rcFree(dest.edgeMatrix);
-//        dest.edgeMatrix = edgeMatrix;
-//    }
-//
-//    // Need to check the sub-verts adjacent realtion in lower level graph.
-//    const rcGraph& lowerTopGraph = graphSet.graphs[level - 1];
-//    for (int i = 0, n = src.nverts; i < n; i++)
-//    {
-//        const GraphID newVertID = src.verts[i];
-//        const int newVertIdx = getGraphIndexInLevel(level - 1, newVertID, graphSet);
-//
-//        for (int j = 0, m = dest.nverts; j < m; j++)
-//        {
-//            const GraphID oriVertID = dest.verts[j];
-//            const int oriVertIdx = getGraphIndexInLevel(level - 1, oriVertID, graphSet);
-//            const Weight w = lowerTopGraph.edgeMatrix[oriVertIdx * lowerTopGraph.nverts + newVertIdx];
-//            if (w > 0)
-//            {
-//                // The ori vert is adjacent
-//                // new intra edge
-//                dest.edgeMatrix[j * newVertsNum + dest.nverts] = w;
-//                dest.edgeMatrix[dest.nverts * newVertsNum + j] = w;
-//            }
-//        }
-//
-//        // new vertex
-//        dest.verts[dest.nverts] = newVertID;
-//        dest.nverts++;
-//    }
-//
-//}
+        // select adjacent vertex v
+        int startIdx = rand() % graph.nverts;
+        int vIdx = startIdx;
+        Weight maxWeight = 0;
+        for (int j = 0, m = nverts; j < m; j++)
+        {
+            int idx = (startIdx + j) % nverts;
+            //select a max weight neighbor
+            Weight w = isAdjVerts(graph, uIdx, idx);
+            if (!matchedFlags[idx] && w > maxWeight)
+            {
+                vIdx = idx;
+                maxWeight = w;
+            }
+        }
 
-static bool coarseningPhase(rcContext* ctx,
-                            const rcGraph& graph,
-                            int& retNverts)
+        if (maxWeight > 0)
+        {
+            // merge to a new graph
+            GraphID gid = RC_GRAPH_ID_NULL;
+            rcGraph* child = allocGraghFromPool(graphPool, gid);
+            if (child == nullptr)
+                goto Exit0;
+
+            retCode = rcBuildGraph(ctx, *child, gid, 2, RC_ALLOC_TEMP);
+            if (retCode)
+                goto Exit0;
+
+            child->id = gid;
+            child->verts[0] = graph.verts[uIdx];
+            child->verts[1] = graph.verts[vIdx];
+            child->edgeMatrix[1] = maxWeight;
+            child->edgeMatrix[2] = maxWeight;
+            child->weights[0] = graph.weights[uIdx];
+            child->weights[1] = graph.weights[vIdx];
+            matchedFlags[uIdx] = true;
+            matchedFlags[vIdx] = true;
+            retMatching.list[retMatching.length] = child->id;
+            retMatching.weightList[retMatching.length] = child->weights[0] + child->weights[1];
+            retMatching.length++;
+        }
+    }//for
+
+     // unmatch vertex would remain as solo vertex
+    for (int i = 0, n = nverts; i < n; i++)
+    {
+        if (!matchedFlags[i])
+        {
+            GraphID gid = RC_GRAPH_ID_NULL;
+            rcGraph* child = allocGraghFromPool(graphPool, gid);
+            if (child == nullptr)
+                goto Exit0;
+
+            retCode = rcBuildGraph(ctx, *child, gid, 1, RC_ALLOC_TEMP);
+            if (retCode)
+                goto Exit0;
+
+            child->id = gid;
+            child->verts[0] = graph.verts[i];
+            child->weights[0] = graph.weights[i];
+            matchedFlags[i] = true;
+            retMatching.list[retMatching.length] = child->id;
+            retMatching.weightList[retMatching.length] = child->weights[0];
+            retMatching.length++;
+        }
+    }//for
+
+    result = true;
+Exit0:
+    return result;
+}
+
+
+static GraphID generateHigherGraph(rcContext*      ctx,
+                                   const rcGraph&  baseGraph,
+                                   rcGraphPool&    graphPool,
+                                   const Matching& matching)
 {
     bool result = false;
     bool retCode = false;
-    const unsigned short nverts = graph.nverts;
-    const unsigned short poolCapacity = graph.nverts * 10;
-    unsigned short poolSize = 0;
-    rcScopedDelete<rcGraph> graphPool((rcGraph*)rcAlloc(sizeof(rcGraph) * poolCapacity, RC_ALLOC_TEMP));
-    GraphID matchings[MAX_POLY_NUM];
-    Weight matchingWeights[MAX_POLY_NUM];
-    int nmatching = 0;
+    GraphID gid = RC_GRAPH_ID_NULL;
+    rcGraph* higherGraph = allocGraghFromPool(graphPool, gid);
+    const rcGraph* lowGraph = &baseGraph;
+    if (higherGraph == nullptr || gid == RC_GRAPH_ID_NULL)
+        goto Exit0;
 
-
+    retCode = rcBuildGraph(ctx, *higherGraph, gid, matching.length, RC_ALLOC_TEMP);
+    if (!retCode)
     {
-        bool matchedFlags[MAX_POLY_NUM];
+        ctx->log(RC_LOG_ERROR, "coarseningPhase: build graph fails 'highGraph'");
+        goto Exit0;
+    }
 
-        for (int i = 0, n = graph.nverts; i < n; i++)
+    for (int i = 0, n = higherGraph->nverts; i < n; i++)
+    {
+        GraphID childID = matching.list[i];
+        higherGraph->verts[i] = childID;
+        higherGraph->weights[i] = matching.weightList[i];
+        higherGraph->edgeMatrix[i * matching.length + i] = 0;
+    }//for
+
+     //calculate coarser graph edgeMatrix
+    for (int i = 0, n = higherGraph->nverts; i < n; i++)
+    {
+        GraphID gid1 = higherGraph->verts[i];
+        rcGraph& child1 = graphPool.pool[gid1];
+        for (int j = 0, m = matching.length; j < m; m++)
         {
-            // select a random vertex u
-            int uIdx = getRandomGraphVert(graph, matchedFlags);
-            if (uIdx < 0)
-                break;
+            if (i == j)
+                continue;
 
-            // select adjacent vertex v
-            // Heavy Edge Matching (HEM)
-            int startIdx = rand() % graph.nverts;
-            int vIdx = startIdx;
-            Weight maxWeight = 0;
-            for (int j = 0, m = nverts; j < m; j++)
-            {
-                int idx = (startIdx + j) % nverts;
-                //select a max weight neighbor
-                Weight w = isAdjVerts(graph, uIdx, idx);
-                if (!matchedFlags[idx] && w > maxWeight)
-                {
-                    vIdx = idx;
-                    maxWeight = w;
-                }
-            }
-
-            if (maxWeight > 0)
-            {
-                // merge to a new graph
-                GraphID gid = RC_GRAPH_ID_NULL;
-                rcGraph* child = rcAllocGraph(graphPool, poolSize, gid);
-                if (child == nullptr)
-                    goto Exit0;
-
-                retCode = rcBuildGraph(ctx, *child, gid, 2, RC_ALLOC_TEMP);
-                if (retCode)
-                    goto Exit0;
-
-                child->id = gid;
-                child->verts[0] = graph.verts[uIdx];
-                child->verts[1] = graph.verts[vIdx];
-                child->edgeMatrix[1] = maxWeight;
-                child->edgeMatrix[2] = maxWeight;
-                child->weights[0] = graph.weights[uIdx];
-                child->weights[1] = graph.weights[vIdx];
-                matchedFlags[uIdx] = true;
-                matchedFlags[vIdx] = true;
-                matchings[nmatching] = child->id;
-                matchingWeights[nmatching] = child->weights[0] + child->weights[1];
-                nmatching++;
-            }
-        }//for
-
-         // unmatch vertex would remain as solo vertex
-        for (int i = 0, n = nverts; i < n; i++)
-        {
-            if (!matchedFlags[i])
-            {
-                GraphID gid = RC_GRAPH_ID_NULL;
-                rcGraph* child = rcAllocGraph(graphPool, poolSize, gid);
-                if (child == nullptr)
-                    goto Exit0;
-
-                retCode = rcBuildGraph(ctx, *child, gid, 1, RC_ALLOC_TEMP);
-                if (retCode)
-                    goto Exit0;
-                                
-                child->id = gid;
-                child->verts[0] = graph.verts[i];
-                child->weights[0] = graph.weights[i];
-                matchedFlags[i] = true;
-                matchings[nmatching] = child->id;
-                matchingWeights[nmatching] = child->weights[0];
-                nmatching++;
-            }
+            GraphID gid2 = higherGraph->verts[i];
+            rcGraph& child2 = graphPool.pool[gid2];
+            Weight edgeWeight = calcEdgeWeight(child1, child2, *lowGraph);
+            higherGraph->edgeMatrix[i * higherGraph->nverts + j] = edgeWeight;
+            higherGraph->edgeMatrix[j * higherGraph->nverts + i] = edgeWeight;
         }//for
     }
 
-
+    result = true;
+Exit0:
+    if (!result)
     {
-        GraphID gid = RC_GRAPH_ID_NULL;
-        rcGraph* highGraph = rcAllocGraph(graphPool, poolSize, gid);
-        const rcGraph* lowGraph = &graph;
-        if (highGraph == nullptr || gid == RC_GRAPH_ID_NULL)
-            goto Exit0;
+        gid = RC_GRAPH_ID_NULL;
+    }
+    return gid;
+}
 
-        retCode = rcBuildGraph(ctx, *highGraph, gid, nmatching, RC_ALLOC_TEMP);
+
+static bool coarseningPhase(rcContext*      ctx,
+                            const rcGraph&  graph,
+                            rcGraphPool&    graphPool,
+                            const int       maxlevel,
+                            GraphID*        retLevelGraphs)
+{
+    rcAssert(ctx);
+    rcAssert(retLevelGraphs);
+
+    bool result = false;
+    bool retCode = false;
+    const float minRatio = 0.8f;
+    Matching matching;
+
+    memset(retLevelGraphs, RC_GRAPH_ID_NULL, sizeof(GraphID) * maxlevel);
+    for (int i = 0, n = maxlevel; i < n; i++)
+    {
+        const GraphID lowGID = i == 0 ? graph.id : retLevelGraphs[i - 1];
+        GraphID highGID = RC_GRAPH_ID_NULL;
+        rcGraph& lowGraph = graphPool.pool[lowGID];
+        float ratio = 1.0f;
+
+        retCode = heavyEdgeMatching(ctx, lowGraph, graphPool, matching);
         if (!retCode)
-        {
-            ctx->log(RC_LOG_ERROR, "coarseningPhase: build graph fails 'highGraph'");
             goto Exit0;
-        }
 
-        for (int i = 0, n = highGraph->nverts; i < n; i++)
-        {
-            GraphID childID = matchings[i];
-            highGraph->verts[i] = childID;
-            highGraph->weights[i] = matchingWeights[i];
-            highGraph->edgeMatrix[i * nmatching + i] = 0;
-        }//for
+        highGID = generateHigherGraph(ctx, lowGraph, graphPool, matching);
+        if (highGID == RC_GRAPH_ID_NULL)
+            goto Exit0;
 
-         //calculate coarser graph edgeMatrix
-        for (int i = 0, n = highGraph->nverts; i < n; i++)
-        {
-            GraphID gid1 = highGraph->verts[i];
-            rcGraph& child1 = graphPool[gid1];
-            for (int j = 0, m = nmatching; j < m; m++)
-            {
-                if (i == j)
-                    continue;
-
-                GraphID gid2 = highGraph->verts[i];
-                rcGraph& child2 = graphPool[gid2];
-                Weight edgeWeight = calcEdgeWeight(child1, child2, *lowGraph);
-                highGraph->edgeMatrix[i * highGraph->nverts + j] = edgeWeight;
-                highGraph->edgeMatrix[j * highGraph->nverts + i] = edgeWeight;
-            }//for
-        }
+        retLevelGraphs[i] = highGID;
+        ratio = (float)graphPool.pool[highGID].nverts / graph.nverts;
+        if (ratio < minRatio)
+            break;
     }
-
-    retNverts = nmatching;
 
     result = true;
 Exit0:
@@ -359,18 +344,36 @@ static bool uncoarseningPhase(rcContext* ctx, const rcGraphSet& graphSet, const 
 }
 
 
+//Multilevel k-way Partitioning Scheme (MLkP)
+//https://glaros.dtc.umn.edu/gkhome/fetch/papers/mlJPDC98.pdf
 static bool partitionGraph(rcContext* ctx, rcGraphSet& graphSet, rcGraph& graph, int nparts, const rcGraph& lowerGraph)
 {
-    //Multilevel k-way Partitioning Scheme (MLkP)
-    //https://glaros.dtc.umn.edu/gkhome/fetch/papers/mlJPDC98.pdf
+    bool result = false;
+    bool retCode = false;
+    const unsigned short poolCapacity = graph.nverts * 10;
+    rcGraphPool graphPool;
+    graphPool.size = 0;
+    graphPool.capacity = poolCapacity;
+    graphPool.pool = (rcGraph*)rcAlloc(sizeof(rcGraph) * poolCapacity, RC_ALLOC_TEMP);
+    if (graphPool.pool == nullptr)
+    {
+        ctx->log(RC_LOG_ERROR, "partitionGraph: Out of memory 'graphPool.pool' (%d).", poolCapacity);
+        goto Exit0;
+    }
+    memset(graphPool.pool, 0, sizeof(rcGraph) * poolCapacity);
+
 
     //Step1. coarsening phase
-    //coarseningPhase(ctx, graphSet, lowerGraph);
+    //retCode = coarseningPhase(ctx, graphSet, graphPool);
     //Step2. initial partitioniong phase
     initPartitionPhase(ctx, graphSet, lowerGraph, nparts);
     //Step3. uncoarsening phase
     uncoarseningPhase(ctx, graphSet, lowerGraph);
-    return true;
+
+    result = true;
+Exit0:
+    freeGraphPool(graphPool);
+    return result;
 }
 
 rcGraphSet* rcAllocGraphSet(rcContext* ctx, int npoly, int level)
@@ -513,15 +516,6 @@ void rcFreeGraphSet(rcGraphSet* pData)
 }
 
 
-rcGraph* rcAllocGraph(rcGraph* graphPool, unsigned short& poolSize, GraphID& retGraphID)
-{
-    retGraphID = RC_GRAPH_ID_NULL;
-    rcGraph* graph = &(graphPool[poolSize]);
-    retGraphID = poolSize;
-    poolSize++;
-    memset(graph, 0, sizeof(rcGraph));
-    return graph;
-}
 
 void rcFreeGraph(rcGraph* pGraph)
 {
