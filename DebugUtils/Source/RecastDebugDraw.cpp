@@ -1058,7 +1058,6 @@ void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraphSet& graphSet, const 
 {
     if (dd == nullptr) return;
 
-    const int MAX_POLY_NUM = 512;
     unsigned short polys[MAX_POLY_NUM];
     GraphID graphID0 = graphSet.topGraphs[0];
     const rcGraph& g0 = graphSet.graphs[graphID0];

@@ -9,16 +9,32 @@ inline Weight isAdjVerts(const rcGraph& graph, int uidx, int vidx)
     return graph.edgeMatrix[uidx * graph.nverts + vidx];
 }
 
-static int getGraphIndexInLevel(int level, const GraphID graphID, const rcGraphSet& graphSet)
-{
-    if (level < graphSet.ngraphs)
-        return -1;
+//static int getGraphIndexInLevel(int level, const GraphID graphID, const rcGraphSet& graphSet)
+//{
+//    if (level < graphSet.ngraphs)
+//        return -1;
+//
+//    rcGraph& topGraph = graphSet.graphs[level];
+//    int index = -1;
+//    for (int i = 0, n = topGraph.nverts; i < n; i++)
+//    {
+//        if (topGraph.verts[i] == graphID)
+//        {
+//            index = i;
+//            break;
+//        }
+//    }
+//
+//    return index;
+//}
 
-    rcGraph& topGraph = graphSet.graphs[level];
+
+static int getGraphIndex(const rcGraph& graph, const GraphID childID)
+{
     int index = -1;
-    for (int i = 0, n = topGraph.nverts; i < n; i++)
+    for (int i = 0, n = graph.nverts; i < n; i++)
     {
-        if (topGraph.verts[i] == graphID)
+        if (graph.verts[i] == childID)
         {
             index = i;
             break;
@@ -27,8 +43,6 @@ static int getGraphIndexInLevel(int level, const GraphID graphID, const rcGraphS
 
     return index;
 }
-
-
 
 static int getRandomGraphVert(const rcGraph& graph, bool* travelledAry)
 {
@@ -52,6 +66,37 @@ static int getRandomGraphVert(const rcGraph& graph, bool* travelledAry)
     }
 
     return selectIdx;
+}
+
+
+static Weight calcEdgeWeight(const rcGraph& g1, const rcGraph& g2, const rcGraph& lowGraph)
+{
+    //g1 and g2 must not have same sub graph.
+    bool result = false;
+    Weight totalWeight = 0;
+    for (int i = 0, n = g1.nverts; i < n; i++)
+    {
+        GraphID childID1 = g1.verts[i];
+        int childIdx1 = getGraphIndex(lowGraph, childID1);
+        if (childIdx1 < 0)
+            goto Exit0;
+
+        for (int j = 0, m = g2.nverts; j < m; j++)
+        {
+            GraphID childID2 = g2.verts[j];
+            int childIdx2 = getGraphIndex(lowGraph, childID2);
+            if (childIdx2)
+                goto Exit0;
+
+            totalWeight += lowGraph.edgeMatrix[childIdx1 * lowGraph.nverts + childIdx2];
+        }
+    }
+
+    result = true;
+Exit0:
+    if (!result)
+        totalWeight = 0;
+    return totalWeight;
 }
 
 
@@ -161,110 +206,143 @@ static bool coarseningPhase(rcContext* ctx,
                             const rcGraph& graph,
                             int& retNverts)
 {
-    const int nverts = graph.nverts;
-    int length = 0;
-
-    length = nverts * 2;
-    //A matching of a graph is a set of edges
-    rcScopedDelete<int> matchings((int*)rcAlloc(sizeof(int) * length, RC_ALLOC_TEMP));
-    if (matchings == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "coarseningPhase: Out of memory 'coarsenedGraphs' (%d).", length);
-        return false;
-    }
-    memset(matchings, RC_MESH_NULL_IDX, sizeof(int) * length);
+    bool result = false;
+    bool retCode = false;
+    const unsigned short nverts = graph.nverts;
+    const unsigned short poolCapacity = graph.nverts * 10;
+    unsigned short poolSize = 0;
+    rcScopedDelete<rcGraph> graphPool((rcGraph*)rcAlloc(sizeof(rcGraph) * poolCapacity, RC_ALLOC_TEMP));
+    GraphID matchings[MAX_POLY_NUM];
+    Weight matchingWeights[MAX_POLY_NUM];
     int nmatching = 0;
 
-    bool flagAry[MAX_POLY_NUM];
-    for (int i = 0, n = graph.nverts; i < n; i++)
-    {
-        // select random vertex u
-        int uIdx = getRandomGraphVert(graph, flagAry);
-        if (uIdx < 0)
-            break;
 
-        // select adjacent vertex v
-        // Heavy Edge Matching (HEM)
-        int startIdx = rand() % graph.nverts;
-        int vIdx = startIdx;
-        Weight maxWeight = 0;
-        for (int j = 0, m = nverts; i < m; i++)
+    {
+        bool matchedFlags[MAX_POLY_NUM];
+
+        for (int i = 0, n = graph.nverts; i < n; i++)
         {
-            int idx = (startIdx + j) % graph.nverts;
-            Weight w = graph.edgeMatrix[uIdx * graph.nverts + idx];
-            if (!flagAry[idx] && w > maxWeight)
+            // select a random vertex u
+            int uIdx = getRandomGraphVert(graph, matchedFlags);
+            if (uIdx < 0)
+                break;
+
+            // select adjacent vertex v
+            // Heavy Edge Matching (HEM)
+            int startIdx = rand() % graph.nverts;
+            int vIdx = startIdx;
+            Weight maxWeight = 0;
+            for (int j = 0, m = nverts; j < m; j++)
             {
-                vIdx = idx;
-                maxWeight = w;
-            }
-        }
-
-        if (maxWeight > 0)
-        {
-            // merge two vertices.
-            matchings[2 * nmatching + 0] = uIdx;
-            flagAry[uIdx] = true;
-            matchings[2 * nmatching + 1] = vIdx;
-            flagAry[vIdx] = true;
-            nmatching++;
-        }
-    }//for
-
-    for (int i = 0, n = nverts; i < n; i++)
-    {
-        if (!flagAry[i])
-        {
-            // merge two vertices.
-            matchings[2 * nmatching + 0] = i;
-            matchings[2 * nmatching + 1] = RC_MESH_NULL_IDX;
-            nmatching++;
-        }
-    }//for
-
-
-    length = nmatching * nmatching;
-    rcScopedDelete<Weight> edgeMatrix((Weight*)rcAlloc(sizeof(Weight) * length, RC_ALLOC_TEMP));
-    if (edgeMatrix == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "coarseningPhase: Out of memory 'edgeMatrix' (%d).", length);
-        return false;
-    }
-    memcpy(edgeMatrix, graph.edgeMatrix, sizeof(Weight) * length);
-
-    //calculate coarser graph edgeMatrix
-    for (int i = 0, n = nmatching; i < n; i++)
-    {
-        int* m1 = &(matchings[i * 2]);
-        edgeMatrix[i * nmatching + i] = 0;
-        for (int j = 0, m = nmatching; j < m; m++)
-        {
-            if (i == j)
-                continue;
-
-            int* m2 = &(matchings[j * 2]);
-            Weight w = isAdjVerts(graph, m1[0], m2[0]);
-            if (m1[1] != RC_MESH_NULL_IDX)
-            {
-                w += isAdjVerts(graph, m1[1], m2[0]);
+                int idx = (startIdx + j) % nverts;
+                //select a max weight neighbor
+                Weight w = isAdjVerts(graph, uIdx, idx);
+                if (!matchedFlags[idx] && w > maxWeight)
+                {
+                    vIdx = idx;
+                    maxWeight = w;
+                }
             }
 
-            if (m2[1] != RC_MESH_NULL_IDX)
+            if (maxWeight > 0)
             {
-                w += isAdjVerts(graph, m1[0], m2[1]);
-            }
+                // merge to a new graph
+                GraphID gid = RC_GRAPH_ID_NULL;
+                rcGraph* child = rcAllocGraph(graphPool, poolSize, gid);
+                if (child == nullptr)
+                    goto Exit0;
 
-            if (m1[1] != RC_MESH_NULL_IDX && m2[1] != RC_MESH_NULL_IDX)
-            {
-                w += isAdjVerts(graph, m1[1], m2[1]);
-            }
+                retCode = rcBuildGraph(ctx, *child, gid, 2, RC_ALLOC_TEMP);
+                if (retCode)
+                    goto Exit0;
 
-            edgeMatrix[i * nmatching + j] = w;
-            edgeMatrix[j * nmatching + i] = w;
+                child->id = gid;
+                child->verts[0] = graph.verts[uIdx];
+                child->verts[1] = graph.verts[vIdx];
+                child->edgeMatrix[1] = maxWeight;
+                child->edgeMatrix[2] = maxWeight;
+                child->weights[0] = graph.weights[uIdx];
+                child->weights[1] = graph.weights[vIdx];
+                matchedFlags[uIdx] = true;
+                matchedFlags[vIdx] = true;
+                matchings[nmatching] = child->id;
+                matchingWeights[nmatching] = child->weights[0] + child->weights[1];
+                nmatching++;
+            }
         }//for
-    }//for
+
+         // unmatch vertex would remain as solo vertex
+        for (int i = 0, n = nverts; i < n; i++)
+        {
+            if (!matchedFlags[i])
+            {
+                GraphID gid = RC_GRAPH_ID_NULL;
+                rcGraph* child = rcAllocGraph(graphPool, poolSize, gid);
+                if (child == nullptr)
+                    goto Exit0;
+
+                retCode = rcBuildGraph(ctx, *child, gid, 1, RC_ALLOC_TEMP);
+                if (retCode)
+                    goto Exit0;
+                                
+                child->id = gid;
+                child->verts[0] = graph.verts[i];
+                child->weights[0] = graph.weights[i];
+                matchedFlags[i] = true;
+                matchings[nmatching] = child->id;
+                matchingWeights[nmatching] = child->weights[0];
+                nmatching++;
+            }
+        }//for
+    }
+
+
+    {
+        GraphID gid = RC_GRAPH_ID_NULL;
+        rcGraph* highGraph = rcAllocGraph(graphPool, poolSize, gid);
+        const rcGraph* lowGraph = &graph;
+        if (highGraph == nullptr || gid == RC_GRAPH_ID_NULL)
+            goto Exit0;
+
+        retCode = rcBuildGraph(ctx, *highGraph, gid, nmatching, RC_ALLOC_TEMP);
+        if (!retCode)
+        {
+            ctx->log(RC_LOG_ERROR, "coarseningPhase: build graph fails 'highGraph'");
+            goto Exit0;
+        }
+
+        for (int i = 0, n = highGraph->nverts; i < n; i++)
+        {
+            GraphID childID = matchings[i];
+            highGraph->verts[i] = childID;
+            highGraph->weights[i] = matchingWeights[i];
+            highGraph->edgeMatrix[i * nmatching + i] = 0;
+        }//for
+
+         //calculate coarser graph edgeMatrix
+        for (int i = 0, n = highGraph->nverts; i < n; i++)
+        {
+            GraphID gid1 = highGraph->verts[i];
+            rcGraph& child1 = graphPool[gid1];
+            for (int j = 0, m = nmatching; j < m; m++)
+            {
+                if (i == j)
+                    continue;
+
+                GraphID gid2 = highGraph->verts[i];
+                rcGraph& child2 = graphPool[gid2];
+                Weight edgeWeight = calcEdgeWeight(child1, child2, *lowGraph);
+                highGraph->edgeMatrix[i * highGraph->nverts + j] = edgeWeight;
+                highGraph->edgeMatrix[j * highGraph->nverts + i] = edgeWeight;
+            }//for
+        }
+    }
 
     retNverts = nmatching;
-    return true;
+
+    result = true;
+Exit0:
+    return result;
 }
 
 static bool initPartitionPhase(rcContext* ctx, const rcGraphSet& graphSet, const rcGraph& graph, int k)
@@ -421,19 +499,6 @@ bool rcBuildGraphSet(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphSet& graphS
     return true;
 }
 
-
-void rcFreeGraph(rcGraph* pGraph)
-{
-    if (pGraph == nullptr)
-        return;
-
-    rcFree(pGraph->edgeMatrix);
-    rcFree(pGraph->verts);
-    rcFree(pGraph->weights);
-    rcFree(pGraph);
-}
-
-
 void rcFreeGraphSet(rcGraphSet* pData)
 {
     if (pData == nullptr)
@@ -446,3 +511,87 @@ void rcFreeGraphSet(rcGraphSet* pData)
     rcFree(pData->graphs);
     rcFree(pData);
 }
+
+
+rcGraph* rcAllocGraph(rcGraph* graphPool, unsigned short& poolSize, GraphID& retGraphID)
+{
+    retGraphID = RC_GRAPH_ID_NULL;
+    rcGraph* graph = &(graphPool[poolSize]);
+    retGraphID = poolSize;
+    poolSize++;
+    memset(graph, 0, sizeof(rcGraph));
+    return graph;
+}
+
+void rcFreeGraph(rcGraph* pGraph)
+{
+    if (pGraph == nullptr)
+        return;
+
+    rcFree(pGraph->edgeMatrix);
+    rcFree(pGraph->verts);
+    rcFree(pGraph->weights);
+    rcFree(pGraph);
+}
+
+bool rcBuildGraph(rcContext* ctx, rcGraph& graph, const GraphID id, const unsigned short nverts, const rcAllocHint hint)
+{
+    bool result = false;
+    int length = 0;
+    graph.id = id;
+    graph.nverts = nverts;
+    graph.poly = 0;
+
+    length = nverts * nverts;
+    graph.edgeMatrix = (Weight*)rcAlloc(sizeof(Weight)*length, hint);
+    if (graph.edgeMatrix == nullptr)
+    {
+        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'graph.edgeMatrix' (%d).", length);
+        goto Exit0;
+    }
+    memset(graph.edgeMatrix, 0, sizeof(Weight) * length);
+
+    length = nverts;
+    graph.weights = (Weight*)rcAlloc(sizeof(Weight)*length, hint);
+    if (graph.weights == nullptr)
+    {
+        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'graph.weights' (%d).", length);
+        goto Exit0;
+    }
+    memset(graph.weights, 0, sizeof(Weight) * length);
+
+    length = nverts;
+    graph.verts = (GraphID*)rcAlloc(sizeof(GraphID)*length, hint);
+    if (graph.verts == nullptr)
+    {
+        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'graph.verts' (%d).", length);
+        goto Exit0;
+    }
+    memset(graph.verts, RC_GRAPH_ID_NULL, sizeof(GraphID) * length);
+
+    result = true;
+Exit0:
+    if (!result)
+    {
+        if (graph.edgeMatrix != nullptr)
+        {
+            rcFree(graph.edgeMatrix);
+            graph.edgeMatrix = nullptr;
+        }
+
+        if (graph.weights != nullptr)
+        {
+            rcFree(graph.weights);
+            graph.weights = nullptr;
+        }
+
+        if (graph.verts != nullptr)
+        {
+            rcFree(graph.verts);
+            graph.verts = nullptr;
+        }
+    }
+    return result;
+}
+
+
