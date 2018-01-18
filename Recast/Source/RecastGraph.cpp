@@ -167,9 +167,12 @@ static bool heavyEdgeMatching(rcContext*        ctx,
         for (int j = 0, m = nverts; j < m; j++)
         {
             int idx = (startIdx + j) % nverts;
+            if (matchedFlags[idx])
+                continue;
+
             //select a max weight neighbor
             Weight w = isAdjVerts(graph, uIdx, idx);
-            if (!matchedFlags[idx] && w > maxWeight)
+            if (w > maxWeight)
             {
                 vIdx = idx;
                 maxWeight = w;
@@ -192,7 +195,7 @@ static bool heavyEdgeMatching(rcContext*        ctx,
             child->verts[0] = graph.verts[uIdx];
             child->verts[1] = graph.verts[vIdx];
             child->edgeMatrix[1] = maxWeight;
-            child->edgeMatrix[2] = maxWeight;
+            child->edgeMatrix[2] = maxWeight;            
             child->weights[0] = graph.weights[uIdx];
             child->weights[1] = graph.weights[vIdx];
             matchedFlags[uIdx] = true;
@@ -297,6 +300,7 @@ static bool coarseningPhase(rcContext*      ctx,
 {
     rcAssert(ctx);
     rcAssert(retLevelGraphs);
+    rcAssert((sizeof(retLevelGraphs) / sizeof(GraphID)) >= maxlevel);
 
     bool result = false;
     bool retCode = false;
@@ -348,9 +352,13 @@ static bool uncoarseningPhase(rcContext* ctx, const rcGraphSet& graphSet, const 
 //https://glaros.dtc.umn.edu/gkhome/fetch/papers/mlJPDC98.pdf
 static bool partitionGraph(rcContext* ctx, rcGraphSet& graphSet, rcGraph& graph, int nparts, const rcGraph& lowerGraph)
 {
+    assert(ctx);
+
     bool result = false;
     bool retCode = false;
-    const unsigned short poolCapacity = graph.nverts * 10;
+    const int maxLevel = 5;
+    GraphID tempGraphs[MAX_POLY_NUM];
+    const unsigned short poolCapacity = MAX_POLY_NUM * maxLevel;
     rcGraphPool graphPool;
     graphPool.size = 0;
     graphPool.capacity = poolCapacity;
@@ -362,9 +370,11 @@ static bool partitionGraph(rcContext* ctx, rcGraphSet& graphSet, rcGraph& graph,
     }
     memset(graphPool.pool, 0, sizeof(rcGraph) * poolCapacity);
 
-
     //Step1. coarsening phase
-    //retCode = coarseningPhase(ctx, graphSet, graphPool);
+    retCode = coarseningPhase(ctx, graph, graphPool, maxLevel, tempGraphs);
+    if (!retCode)
+        goto Exit0;
+
     //Step2. initial partitioniong phase
     initPartitionPhase(ctx, graphSet, lowerGraph, nparts);
     //Step3. uncoarsening phase
