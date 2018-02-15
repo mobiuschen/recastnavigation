@@ -9,10 +9,9 @@ typedef unsigned short Weight;
 class rcContext;
 struct rcPolyMesh;
 struct rcGraph;
-//struct rcGraphEdge;
 
-const unsigned short MAX_POLY_NUM = 5120;
-const unsigned short RC_GRAPH_ID_NULL = 0;
+static const unsigned short MAX_POLY_NUM = 5120;
+static const unsigned short RC_GRAPH_ID_NULL = 0;
 
 struct rcGraph
 {

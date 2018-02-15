@@ -10,9 +10,8 @@ typedef unsigned short Weight;
 class rcContext;
 
 struct rcPolyMesh;
-struct rcGraph;
+struct rcGraphHNA;
 
-static const unsigned short MAX_POLY_NUM = 5120;
 static const int RC_INVALID_INDEX = -1;
 static const unsigned int RC_INVALID_VERTEX = 0xFFFF;
 
@@ -26,16 +25,20 @@ struct rcVertex
     Weight adjwgt; ///the sum of the weight of the edges adjacent to v
 };
 
-struct rcGraph
+struct rcGraphHNA
 {
-    rcVertex *vtxs;
-    Weight *adjncy; ///the adjacency lists of the vertices
+    rcVertex* vtxs;
+    Weight* adjncy; ///the adjacency lists of the vertices
     int nvt;    ///The number of vertices
 };
 
 
-rcGraph *rcAllocGraph();
+rcGraphHNA* rcAllocGraph(rcAllocHint hint);
 
-bool rcBuildGraph(rcContext *ctx, const rcPolyMesh &pmesh, rcGraph &graph);
+bool rcFreeGraph();
+
+bool rcBuildGraphHNA(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphHNA& graph);
+
+bool rcBuildGraphHNA(rcContext* ctx, rcGraphHNA& graph, int nverts, rcAllocHint allocHint);
 
 #endif
