@@ -35,7 +35,7 @@ struct rcGraphHNA
 
 rcGraphHNA* rcAllocGraph(rcAllocHint hint);
 
-bool rcFreeGraph();
+bool rcFreeGraph(rcGraphHNA* graph);
 
 bool rcBuildGraphHNA(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphHNA& graph);
 
