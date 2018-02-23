@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "Recast.h"
+#include "RecastAssert.h"
 #include "RecastHNA.h"
 #include "RecastGraph.h"
 
@@ -16,6 +17,13 @@ struct rcHNAConfig
     int     gggpTimes;
 };
 
+struct CoarsenData
+{
+    rcGraphHNA* levelGraphs[MAX_COARSEN_LEVEL] = {nullptr};
+    Match       matches[MAX_COARSEN_LEVEL] = {0};
+    Partition   partitions[MAX_COARSEN_LEVEL] = {0};
+    int         level;
+};
 
 struct rcKLGainBucket
 {
@@ -41,9 +49,9 @@ struct rcKLGainBucketTable
 
 bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph);
 
-bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf);
+bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData);
 
-bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf);
+bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData);
 
 bool uncoarseningPhase();
 
@@ -192,20 +200,21 @@ bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph)
 {
     bool result = false;
     bool retCode = false;
+    CoarsenData intermediateData;
     rcHNAConfig conf;
 
     conf.condK = 10;
     conf.condR = 0.8f;
     conf.gggpTimes = 4;
 
-    retCode = coarsening(ctx, graph, conf);
+    retCode = coarsening(ctx, graph, conf, intermediateData);
     if (!retCode)
     {
         ctx->log(RC_LOG_ERROR, "partitionGraph: coarsening phase fails.");
         goto Exit0;
     }
 
-    retCode = initialPartition(ctx, graph, conf);
+    retCode = initialPartition(ctx, graph, conf, intermediateData);
     if (!retCode)
     {
         ctx->log(RC_LOG_ERROR, "initialPartition: coarsening phase fails.");
@@ -225,14 +234,14 @@ Exit0:
     return result;
 }
 
-
-bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf)
+bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData)
 {
     bool result = false;
     bool retCode = false;
     int allocLen = 0;
     Partition p = nullptr;
     Weight minEdgeCut = 0xffff;
+    int level = intermediateData.level;
 
     allocLen = graph.nvt;
     p = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
@@ -245,7 +254,8 @@ bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig
     for (int i = 0, n = conf.gggpTimes; i < n; i++)
     {
         rcScopedDelete<int> temp((Partition)rcAlloc(sizeof(int) * graph.nvt, RC_ALLOC_TEMP));
-        retCode = greedyGraphGrowingPartition(graph, temp);
+        const rcGraphHNA& g = *(intermediateData.levelGraphs[level - 1]);
+        retCode = greedyGraphGrowingPartition(g, temp);
         if (!retCode)
         {
             ctx->log(RC_LOG_ERROR, "initialPartition: function exec fails 'greedyGraphGrowingPartition'");
@@ -273,20 +283,17 @@ Exit0:
 
 
 
-bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf)
+bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData)
 {
     bool result = false;
     bool retCode = false;
-    Match matches[MAX_COARSEN_LEVEL] = {0};
-    Partition partitions[MAX_COARSEN_LEVEL] = {0};
-    rcGraphHNA* graphs[MAX_COARSEN_LEVEL] = {nullptr};
 
     int level = 0;
     float radio = 1.0f;
     do
     {
         int allocLen = 0;
-        const rcGraphHNA* curGraph = level == 0 ? (&graph) : graphs[level - 1];
+        const rcGraphHNA* curGraph = level == 0 ? (&graph) : intermediateData.levelGraphs[level - 1];
         rcGraphHNA* coarserGraph = rcAllocGraph(RC_ALLOC_TEMP);
         if (coarserGraph == nullptr)
         {
@@ -319,13 +326,14 @@ bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf
             goto Exit0;
         }
 
-        matches[level] = match;
-        partitions[level] = p;
-        graphs[level] = coarserGraph;
+        intermediateData.matches[level] = match;
+        intermediateData.partitions[level] = p;
+        intermediateData.levelGraphs[level] = coarserGraph;
         level++;
         radio = ((float)coarserGraph->nvt) / graph.nvt;
-    } while (level < MAX_COARSEN_LEVEL && radio > conf.condR && graphs[level]->nvt > conf.condK);
+    } while (level < MAX_COARSEN_LEVEL && radio > conf.condR && intermediateData.levelGraphs[level]->nvt > conf.condK);
 
+    intermediateData.level = level;
 
     result = true;
 Exit0:
@@ -611,4 +619,32 @@ Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p)
     }
 
     return edgeCut;
+}
+
+
+bool coarsenGraph(const rcGraphHNA& graph, const int k, const int nlevel, const Partition* partitions, rcGraphHNA* retGraph)
+{
+    bool result = false;
+
+    if (partitions == nullptr)
+        goto Exit0;
+
+
+    for (int i = 0, n = graph.nvt; i < n; i++)
+    {
+        int idx = i;
+        for (int j = 0, m = nlevel; j < m; j++)
+        {
+            const Partition& p = partitions[j];
+            idx = p[idx];
+            rcAssert(idx != RC_INVALID_INDEX);
+        }
+    }
+
+    retGraph->nvt = k;
+
+
+    result = true;
+Exit0:
+    return result;
 }
