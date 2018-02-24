@@ -253,20 +253,20 @@ bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig
 
     for (int i = 0, n = conf.gggpTimes; i < n; i++)
     {
-        rcScopedDelete<int> temp((Partition)rcAlloc(sizeof(int) * graph.nvt, RC_ALLOC_TEMP));
+        rcScopedDelete<int> tPartition((Partition)rcAlloc(sizeof(int) * graph.nvt, RC_ALLOC_TEMP));
         const rcGraphHNA& g = *(intermediateData.levelGraphs[level - 1]);
-        retCode = greedyGraphGrowingPartition(g, temp);
+        retCode = greedyGraphGrowingPartition(g, tPartition);
         if (!retCode)
         {
             ctx->log(RC_LOG_ERROR, "initialPartition: function exec fails 'greedyGraphGrowingPartition'");
             goto Exit0;
         }
 
-        Weight w = calcEdgeCut(graph, temp);
+        Weight w = calcEdgeCut(graph, tPartition);
         if (minEdgeCut > w)
         {
             minEdgeCut = w;
-            memcpy(temp, p, sizeof(temp));
+            memcpy(p, tPartition, sizeof(int) * graph.nvt);
         }
     }
 
@@ -509,7 +509,7 @@ Partition greedyGraphGrowingPartition(const rcGraphHNA& graph,
     bool visitedFlags[MAX_POLY_NUM];
     int insertedCount = 0;
 
-    memset((int*)retPartition, nvt, sizeof(retPartition));
+    memset(retPartition, nvt, sizeof(int) * nvt);
 
     if (graph.nvt < 2)
     {
@@ -530,7 +530,7 @@ Partition greedyGraphGrowingPartition(const rcGraphHNA& graph,
         int maxGain = 0;
         int maxGainVert = RC_INVALID_INDEX;
 
-        memset((bool*)visitedFlags, false, sizeof(visitedFlags));
+        memset(visitedFlags, false, sizeof(bool) * nvt);
         for (int i = 0, n = nvt; i < n; i++)
         {
             if (retPartition[i] == ip1)
