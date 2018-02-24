@@ -25,26 +25,14 @@ struct CoarsenData
     int         level;
 };
 
-struct rcKLGainBucket
+struct klGainBucketCell
 {
     int iv;
-    rcKLGainBucket* pre;
-    rcKLGainBucket* next;
+    Weight gain;
+    klGainBucketCell* pre;
+    klGainBucketCell* next;
 };
 
-
-struct rcKLGainBucketLink
-{
-    rcKLGainBucket* bucket;
-    rcKLGainBucketLink* pre;
-    rcKLGainBucketLink* next;
-};
-
-struct rcKLGainBucketTable
-{
-    rcKLGainBucket* table;
-    int size;
-};
 
 
 bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph);
@@ -62,6 +50,10 @@ bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch, Part
 bool shuffle(const int size, const int* src, int* dest);
 Weight calcKLGain(const rcGraphHNA& graph, const int iv, const Partition& p);
 Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p);
+
+
+bool insertGainBucketLink(klGainBucketCell* link, klGainBucketCell* item);
+
 
 
 rcGraphHNA* rcAllocGraph(rcAllocHint allocHint)
@@ -233,6 +225,7 @@ bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph)
 Exit0:
     return result;
 }
+
 
 bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData)
 {
@@ -622,27 +615,109 @@ Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p)
 }
 
 
-bool coarsenGraph(const rcGraphHNA& graph, const int k, const int nlevel, const Partition* partitions, rcGraphHNA* retGraph)
+bool refinePartition(const rcGraphHNA& graph, const Partition& initPartition)
 {
     bool result = false;
+    bool retCode = false;
+    const int nvt = graph.nvt;
+    klGainBucketCell* vertTable = nullptr;
+    klGainBucketCell* link = nullptr;
 
-    if (partitions == nullptr)
+    vertTable = (klGainBucketCell*)rcAlloc(sizeof(klGainBucketCell) * nvt, RC_ALLOC_TEMP);
+    if (vertTable == nullptr)
         goto Exit0;
 
-
-    for (int i = 0, n = graph.nvt; i < n; i++)
+    for (int i = 0, n = nvt; i < n; i++)
     {
-        int idx = i;
-        for (int j = 0, m = nlevel; j < m; j++)
+        klGainBucketCell* pCell = vertTable + i;
+        pCell->iv = i;
+        pCell->gain = calcKLGain(graph, i, initPartition);
+        pCell->pre = nullptr;
+        pCell->next = nullptr;
+        if (link == nullptr)
         {
-            const Partition& p = partitions[j];
-            idx = p[idx];
-            rcAssert(idx != RC_INVALID_INDEX);
+            link = pCell;
+        }
+        else
+        {
+            retCode = insertGainBucketLink(link, pCell);
+            if (!retCode)
+                goto Exit0;
         }
     }
 
-    retGraph->nvt = k;
 
+
+    result = true;
+Exit0:
+    if (vertTable != nullptr)
+    {
+        rcFree(vertTable);
+        vertTable = nullptr;
+    }
+    return result;
+}
+
+
+bool moveVertex(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* gainTbl, const int iv, const int k)
+{
+    const int nvt = graph.nvt;
+    if (partition[iv] != k)
+    {
+        partition[iv] = k;
+    }
+
+    for (int i = 0, n = nvt; i < n; i++)
+    {
+        if (i == iv || graph.adjncy[iv * nvt + i] == 0)
+            continue;
+
+        // update adjacency vertex gains
+        klGainBucketCell* pCell = gainTbl + i;
+        Weight oriGain = pCell->gain;
+        pCell->gain = calcKLGain(graph, i, partition);
+        if (pCell->gain > oriGain)
+        {
+            //TODO
+        }
+        else if (pCell->gain < oriGain)
+        {
+            //TODO            
+        }
+    }
+
+    return true;
+}
+
+
+bool insertGainBucketLink(klGainBucketCell* link, klGainBucketCell* item)
+{
+    bool result = false;
+    if (link == nullptr || item == nullptr)
+        goto Exit0;
+
+    while (link->gain > item->gain && link->next != nullptr)
+    {
+        link = link->next;
+    }
+
+    //sort by gain value
+    if (link->gain >= item->gain)
+    {
+        item->pre = link;
+        item->next = link->next;
+        link->next = item;
+        if (item->next != nullptr)
+            item->next->pre = item;
+    }
+    else
+    {
+        //link->bucket->gain < gb.gain
+        rcAssert(link->pre == nullptr);
+        item->pre = link->pre;
+        item->next = link;
+        link->pre = item;
+    }
 
     result = true;
 Exit0:
