@@ -22,7 +22,7 @@ struct CoarsenData
     rcGraphHNA* levelGraphs[MAX_COARSEN_LEVEL] = {nullptr};
     Match       matches[MAX_COARSEN_LEVEL] = {0};
     Partition   partitions[MAX_COARSEN_LEVEL] = {0};
-    int         level;
+    int         nlevel;
 };
 
 struct klGainBucketCell
@@ -52,7 +52,10 @@ Weight calcKLGain(const rcGraphHNA& graph, const int iv, const Partition& p);
 Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p);
 
 
-bool insertGainBucketLink(klGainBucketCell* link, klGainBucketCell* item);
+bool refinePartition(const rcGraphHNA& graph, Partition& partition);
+bool swapVert(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* gainTbl, const int iv, const int k);
+bool insertToGainBucket(klGainBucketCell* link, klGainBucketCell* item);
+bool removeFromGainBucket(klGainBucketCell* item);
 
 
 
@@ -227,14 +230,15 @@ Exit0:
 }
 
 
-bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData)
+bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf,
+                      CoarsenData& intermediateData)
 {
     bool result = false;
     bool retCode = false;
     int allocLen = 0;
     Partition p = nullptr;
     Weight minEdgeCut = 0xffff;
-    int level = intermediateData.level;
+    int level = intermediateData.nlevel;
 
     allocLen = graph.nvt;
     p = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
@@ -243,7 +247,7 @@ bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig
         ctx->log(RC_LOG_ERROR, "initialPartition: Out of memory 'p' (%d)", allocLen);
         goto Exit0;
     }
-
+    
     for (int i = 0, n = conf.gggpTimes; i < n; i++)
     {
         rcScopedDelete<int> tPartition((Partition)rcAlloc(sizeof(int) * graph.nvt, RC_ALLOC_TEMP));
@@ -263,6 +267,15 @@ bool initialPartition(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig
         }
     }
 
+    {
+        rcGraphHNA* coarsestGraph = intermediateData.levelGraphs[intermediateData.nlevel - 1];
+        rcAssert(coarsestGraph);
+        retCode = refinePartition(*coarsestGraph, p);
+        if (!retCode)
+        {
+            ctx->log(RC_LOG_ERROR, "initialPartition: function exec fails 'refinePartition'");
+        }
+    }
 
     result = true;
 Exit0:
@@ -275,8 +288,8 @@ Exit0:
 }
 
 
-
-bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData)
+bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf,
+                CoarsenData& intermediateData)
 {
     bool result = false;
     bool retCode = false;
@@ -326,7 +339,7 @@ bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf
         radio = ((float)coarserGraph->nvt) / graph.nvt;
     } while (level < MAX_COARSEN_LEVEL && radio > conf.condR && intermediateData.levelGraphs[level]->nvt > conf.condK);
 
-    intermediateData.level = level;
+    intermediateData.nlevel = level;
 
     result = true;
 Exit0:
@@ -334,7 +347,8 @@ Exit0:
 }
 
 
-bool coarsenOnce(rcContext* ctx, const rcGraphHNA& curGraph, rcGraphHNA& retCoarserGraph, Partition& retPartition, Match& retMatch)
+bool coarsenOnce(rcContext* ctx, const rcGraphHNA& curGraph, rcGraphHNA& retCoarserGraph,
+                 Partition& retPartition, Match& retMatch)
 {
     bool result = false;
     bool retCode = false;
@@ -401,7 +415,8 @@ Exit0:
 }
 
 
-bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch, Partition retPartition, int& retNewVertNum)
+bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch,
+                    Partition retPartition, int& retNewVertNum)
 {
     bool result = false;
     int* shuffleVerts = nullptr;
@@ -490,8 +505,7 @@ bool shuffle(const int size, const int* src, int* dest)
 }
 
 
-Partition greedyGraphGrowingPartition(const rcGraphHNA& graph,
-                                      Partition& retPartition)
+Partition greedyGraphGrowingPartition(const rcGraphHNA& graph, Partition& retPartition)
 {
     bool result = false;
     const int nvt = graph.nvt;
@@ -615,7 +629,7 @@ Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p)
 }
 
 
-bool refinePartition(const rcGraphHNA& graph, const Partition& initPartition)
+bool refinePartition(const rcGraphHNA& graph, Partition& partition)
 {
     bool result = false;
     bool retCode = false;
@@ -631,7 +645,7 @@ bool refinePartition(const rcGraphHNA& graph, const Partition& initPartition)
     {
         klGainBucketCell* pCell = vertTable + i;
         pCell->iv = i;
-        pCell->gain = calcKLGain(graph, i, initPartition);
+        pCell->gain = calcKLGain(graph, i, partition);
         pCell->pre = nullptr;
         pCell->next = nullptr;
         if (link == nullptr)
@@ -640,13 +654,17 @@ bool refinePartition(const rcGraphHNA& graph, const Partition& initPartition)
         }
         else
         {
-            retCode = insertGainBucketLink(link, pCell);
+            retCode = insertToGainBucket(link, pCell);
             if (!retCode)
                 goto Exit0;
         }
     }
 
-
+    while (link->gain > 0)
+    {
+        int k = partition[link->iv] == 0 ? 1 : 0;
+        swapVert(graph, partition, vertTable, link->iv, k);
+    }
 
     result = true;
 Exit0:
@@ -659,7 +677,8 @@ Exit0:
 }
 
 
-bool moveVertex(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* gainTbl, const int iv, const int k)
+bool swapVert(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* gainTbl,
+              const int iv, const int k)
 {
     const int nvt = graph.nvt;
     if (partition[iv] != k)
@@ -674,34 +693,40 @@ bool moveVertex(const rcGraphHNA& graph, Partition& partition, klGainBucketCell*
 
         // update adjacency vertex gains
         klGainBucketCell* pCell = gainTbl + i;
-        Weight oriGain = pCell->gain;
-        pCell->gain = calcKLGain(graph, i, partition);
-        if (pCell->gain > oriGain)
-        {
-            //TODO
-        }
-        else if (pCell->gain < oriGain)
-        {
-            //TODO            
-        }
+        klGainBucketCell* link = pCell->pre == nullptr ? pCell->next : pCell->pre;
+        removeFromGainBucket(pCell);
+        rcAssert(pCell != nullptr);
+        rcAssert(link != nullptr);
+        insertToGainBucket(link, pCell);
     }
 
     return true;
 }
 
 
-bool insertGainBucketLink(klGainBucketCell* link, klGainBucketCell* item)
+bool insertToGainBucket(klGainBucketCell* link, klGainBucketCell* item)
 {
     bool result = false;
     if (link == nullptr || item == nullptr)
         goto Exit0;
 
-    while (link->gain > item->gain && link->next != nullptr)
+    if (link->gain > item->gain)
     {
-        link = link->next;
+        // search back
+        while (link->gain > item->gain && link->next != nullptr)
+        {
+            link = link->next;
+        }
+    }
+    else if (link->gain < item->gain)
+    {
+        // search front
+        while (link->gain < item->gain && link->pre != nullptr)
+        {
+            link = link->pre;
+        }
     }
 
-    //sort by gain value
     if (link->gain >= item->gain)
     {
         item->pre = link;
@@ -710,14 +735,35 @@ bool insertGainBucketLink(klGainBucketCell* link, klGainBucketCell* item)
         if (item->next != nullptr)
             item->next->pre = item;
     }
-    else
+    else if (link->gain < item->gain)
     {
-        //link->bucket->gain < gb.gain
-        rcAssert(link->pre == nullptr);
         item->pre = link->pre;
         item->next = link;
         link->pre = item;
+        if (item->pre != nullptr)
+            item->pre->next = item;
     }
+
+    result = true;
+Exit0:
+    return result;
+}
+
+
+bool removeFromGainBucket(klGainBucketCell* item)
+{
+    bool result = false;
+    if (item == nullptr)
+        goto Exit0;
+
+    if (item->pre != nullptr)
+        item->pre->next = item->next;
+
+    if (item->next != nullptr)
+        item->next->pre = item->pre;
+
+    item->next = nullptr;
+    item->pre = nullptr;
 
     result = true;
 Exit0:
