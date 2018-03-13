@@ -52,7 +52,6 @@ Sample_SoloMesh::Sample_SoloMesh() :
 	m_cset(0),
 	m_pmesh(0),
 	m_dmesh(0),
-    m_graphSet(0),
 	m_drawMode(DRAWMODE_NAVMESH)
 {
 	setTool(new NavMeshTesterTool);
@@ -79,8 +78,6 @@ void Sample_SoloMesh::cleanup()
 	m_dmesh = 0;
 	dtFreeNavMesh(m_navMesh);
 	m_navMesh = 0;
-    rcFreeGraphSet(m_graphSet);
-    m_graphSet = 0;
 }
 
 void Sample_SoloMesh::handleSettings()
@@ -179,7 +176,7 @@ void Sample_SoloMesh::handleDebugMode()
 		valid[DRAWMODE_CONTOURS] = m_cset != 0;
         valid[DRAWMODE_POLYMESH] = m_pmesh != 0;
         valid[DRAWMODE_POLYMESH_DETAIL] = m_dmesh != 0;
-        valid[DRAWMODE_HIERACHICAL_NAVMESH] = m_graphSet != 0;
+        valid[DRAWMODE_HIERACHICAL_NAVMESH] = false;
 	}
 	
 	int unavail = 0;
@@ -340,11 +337,9 @@ void Sample_SoloMesh::handleRender()
 		duDebugDrawPolyMeshDetail(&m_dd, *m_dmesh);
 		glDepthMask(GL_TRUE);
 	}
-    if (m_graphSet && m_drawMode == DRAWMODE_HIERACHICAL_NAVMESH)
+    if (m_drawMode == DRAWMODE_HIERACHICAL_NAVMESH)
     {
-        glDepthMask(GL_FALSE);
-        duDebugDrawGraph(&m_dd, *m_graphSet, *m_pmesh);
-        glDepthMask(GL_TRUE);
+        //TODO
     }
 	
 	m_geom->drawConvexVolumes(&m_dd);
@@ -750,23 +745,6 @@ bool Sample_SoloMesh::handleBuild()
 			return false;
 		}
 	}
-	
-
-    //
-    // (Optional) Step 9. Create the hierachical nevmesh graph from poly mesh.
-    //
-    m_graphSet = rcAllocGraphSet(m_ctx, m_pmesh->npolys, 0);
-    if (!m_graphSet)
-    {
-        m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'm_graph'.");
-        return false;
-    }
-
-    if (!rcBuildGraphSet(m_ctx, *m_pmesh, *m_graphSet, 0))
-    {
-        m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not build graph.");
-        return false;
-    }
 
 
 	m_ctx->stopTimer(RC_TIMER_TOTAL);

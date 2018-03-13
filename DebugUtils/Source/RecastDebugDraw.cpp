@@ -21,9 +21,8 @@
 #include "DebugDraw.h"
 #include "RecastDebugDraw.h"
 #include "Recast.h"
-#include "RecastGraph.h"
 
-bool getPolysFromGraph(const struct rcGraphSet& graphSet, const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly);
+//bool getPolysFromGraph(const struct rcGraphSet& graphSet, const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly);
 
 bool drawPolyTris(duDebugDraw* dd, const unsigned short* poly, unsigned int color, const struct rcPolyMesh& pmesh);
 
@@ -1056,50 +1055,8 @@ void duDebugDrawPolyMeshDetail(duDebugDraw* dd, const struct rcPolyMeshDetail& d
 
 void duDebugDrawGraph(duDebugDraw* dd, const struct rcGraphSet& graphSet, const struct rcPolyMesh& pmesh)
 {
-    if (dd == nullptr) return;
-
-    unsigned short polys[MAX_POLY_NUM];
-    GraphID graphID0 = graphSet.topGraphs[0];
-    const rcGraph& g0 = graphSet.graphs[graphID0];
-
-    dd->begin(DU_DRAW_TRIS);
-    for (int i = 0, n = g0.nverts; i < n; ++i)
-    {
-        unsigned int npoly = 0;
-        GraphID gid = g0.verts[i];
-        getPolysFromGraph(graphSet, graphSet.graphs[gid], polys, npoly);
-
-        // draw polys
-        for (int j = 0, m = npoly; j < m; j++)
-        {
-            const int polyIndex = polys[j];
-            const unsigned short* p = &pmesh.polys[polyIndex * pmesh.nvp * 2];
-            unsigned int color = duIntToCol(polyIndex, 192);
-            drawPolyTris(dd, p, color, pmesh);
-        }
-    }
-    dd->end();
 }
 
-
-bool getPolysFromGraph(const struct rcGraphSet& graphSet, const rcGraph& graph, unsigned short* retPolys, unsigned int& retNpoly)
-{
-    if (graph.nverts == 0)
-    {
-        // Level 0 graph.
-        retPolys[retNpoly] = graph.poly;
-        retNpoly++;
-    }
-    else
-    {
-        for (int i = 0, n = graph.nverts; i < n; i++)
-        {
-            GraphID gid = graph.verts[i];
-            getPolysFromGraph(graphSet, graphSet.graphs[gid], retPolys, retNpoly);
-        }
-    }
-    return true;
-}
 
 bool drawPolyTris(duDebugDraw* dd, const unsigned short* poly, unsigned int color, const struct rcPolyMesh& pmesh)
 {

@@ -3,7 +3,6 @@
 #include "Recast.h"
 #include "RecastAssert.h"
 #include "RecastHNA.h"
-#include "RecastGraph.h"
 
 typedef int* Partition;
 typedef int* Match;
@@ -39,7 +38,7 @@ struct klGainBucketCell
 };
 
 
-
+//////////////////////////////////////////////////////////////////////////
 bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph);
 
 bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData);
@@ -47,16 +46,19 @@ bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf
 bool initialPartition(rcContext* ctx, const rcHNAConfig& conf, CoarsenData& intermediateData);
 
 bool uncoarseningPhase();
-
+//////////////////////////////////////////////////////////////////////////
 
 bool greedyGraphGrowingPartition(rcContext* ctx, const rcGraphHNA& graph,
                                  const Partition& initPtt, Partition& retPtt,
                                  const int iSrcIdex, const int iNewPtt);
+
+//////////////////////////////////////////////////////////////////////////
 bool coarsenOnce(rcContext* ctx, const rcGraphHNA& curGraph, rcGraphHNA& retCoarserGraph, Partition& retPartition, Match& retMatch);
 bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch, Partition retPartition, int& retNewVertNum);
 bool shuffle(const int size, const int* src, int* dest);
 Weight calcKLGain(const rcGraphHNA& graph, const int iv, const int targetPartition, const Partition& p);
 Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p);
+//////////////////////////////////////////////////////////////////////////
 
 
 bool refinePartition(const rcGraphHNA& graph, Partition& partition, const int p1, const int p2);
@@ -64,10 +66,13 @@ bool swapVert(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* g
 bool updateCellGain(klGainBucketCell* pCell, Weight gain);
 bool insertToGainBucket(klGainBucketCell* link, klGainBucketCell* item);
 bool removeFromGainBucket(klGainBucketCell* item);
+
 klGainBucketCell* getFirstCell(klGainBucketCell* pCell);
+
 bool bisectGraph(rcContext* ctx, const rcHNAConfig& conf,
                  const rcGraphHNA& graph, Partition& ptt,
                  const int iTargetPtt, const int iNewPtt);
+
 bool projectToGraph(rcContext* ctx, const Partition& ptt, const rcGraphHNA& curGraph,
                     rcGraphHNA& retGraph);
 
@@ -260,8 +265,9 @@ bool initialPartition(rcContext* ctx, const rcHNAConfig& conf, CoarsenData& inte
     if (intermediateData.levelGraphs == nullptr || nlevel <= 0)
         goto Exit0;
 
+
+    //k-way partition
     {
-        //k-way partition
         const rcGraphHNA& coarsestGraph = *(intermediateData.levelGraphs[nlevel - 1]);
         int nParts = nParts = coarsestGraph.nvt;
 
@@ -908,7 +914,6 @@ bool projectToGraph(rcContext* ctx, const Partition& ptt, const rcGraphHNA& curG
                     rcGraphHNA& retGraph)
 {
     bool result = false;
-
     for (int i = 0, n = curGraph.nvt; i < n; i++)
     {
         rcVertex* v = curGraph.vtxs + i;

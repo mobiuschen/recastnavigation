@@ -22,7 +22,6 @@
 #include "Sample.h"
 #include "DetourNavMesh.h"
 #include "Recast.h"
-#include "RecastGraph.h"
 
 class Sample_SoloMesh : public Sample
 {
@@ -35,7 +34,6 @@ protected:
 	rcCompactHeightfield* m_chf;
     rcContourSet* m_cset;
     rcPolyMesh* m_pmesh;
-    rcGraphSet* m_graphSet;
 	rcConfig m_cfg;	
 	rcPolyMeshDetail* m_dmesh;
 	
