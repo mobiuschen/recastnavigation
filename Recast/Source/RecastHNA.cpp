@@ -4,7 +4,7 @@
 #include "RecastAssert.h"
 #include "RecastHNA.h"
 
-typedef int* Partition;
+typedef int* Map;
 typedef int* Match;
 
 static const int MAX_COARSEN_LEVEL = 64;
@@ -19,14 +19,14 @@ struct rcHNAConfig
 struct CoarsenData
 {
     // coarsen phase
-    rcGraphHNA* levelGraphs[MAX_COARSEN_LEVEL] = {nullptr};
+    rcHNAGraph* levelGraphs[MAX_COARSEN_LEVEL] = {nullptr};
     Match       matches[MAX_COARSEN_LEVEL] = {0};
-    Partition   partitions[MAX_COARSEN_LEVEL] = {0};
+    Map   partitions[MAX_COARSEN_LEVEL] = {0};
     int         nlevel;
 
     // init partition level
-    rcGraphHNA* step2Graph = nullptr;
-    Partition   step2Ptt = nullptr;
+    rcHNAGraph* step2Graph = nullptr;
+    Map   step2Ptt = nullptr;
 };
 
 struct klGainBucketCell
@@ -39,30 +39,30 @@ struct klGainBucketCell
 
 
 //////////////////////////////////////////////////////////////////////////
-bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph);
+bool partitionGraph(rcContext* ctx, const rcHNAGraph& graph);
 
-bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf, CoarsenData& intermediateData);
+bool coarsening(rcContext* ctx, const rcHNAGraph& graph, const rcHNAConfig& conf, CoarsenData& intermediateData);
 
 bool initialPartition(rcContext* ctx, const rcHNAConfig& conf, CoarsenData& intermediateData);
 
 bool uncoarseningPhase();
 //////////////////////////////////////////////////////////////////////////
 
-bool greedyGraphGrowingPartition(rcContext* ctx, const rcGraphHNA& graph,
-                                 const Partition& initPtt, Partition& retPtt,
+bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
+                                 const Map& initPtt, Map& retPtt,
                                  const int iSrcIdex, const int iNewPtt);
 
 //////////////////////////////////////////////////////////////////////////
-bool coarsenOnce(rcContext* ctx, const rcGraphHNA& curGraph, rcGraphHNA& retCoarserGraph, Partition& retPartition, Match& retMatch);
-bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch, Partition retPartition, int& retNewVertNum);
+bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoarserGraph, Map& retPartition, Match& retMatch);
+bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph, int* retMatch, Map retPartition, int& retNewVertNum);
 bool shuffle(const int size, const int* src, int* dest);
-Weight calcKLGain(const rcGraphHNA& graph, const int iv, const int targetPartition, const Partition& p);
-Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& p);
+Weight calcKLGain(const rcHNAGraph& graph, const int iv, const int targetPartition, const Map& p);
+Weight calcEdgeCut(const rcHNAGraph& graph, const Map& p);
 //////////////////////////////////////////////////////////////////////////
 
 
-bool refinePartition(const rcGraphHNA& graph, Partition& partition, const int p1, const int p2);
-bool swapVert(const rcGraphHNA& graph, Partition& partition, klGainBucketCell* gainTbl, const int iv, const int k);
+bool refinePartition(const rcHNAGraph& graph, Map& partition, const int p1, const int p2);
+bool swapVert(const rcHNAGraph& graph, Map& partition, klGainBucketCell* gainTbl, const int iv, const int k);
 bool updateCellGain(klGainBucketCell* pCell, Weight gain);
 bool insertToGainBucket(klGainBucketCell* link, klGainBucketCell* item);
 bool removeFromGainBucket(klGainBucketCell* item);
@@ -70,147 +70,15 @@ bool removeFromGainBucket(klGainBucketCell* item);
 klGainBucketCell* getFirstCell(klGainBucketCell* pCell);
 
 bool bisectGraph(rcContext* ctx, const rcHNAConfig& conf,
-                 const rcGraphHNA& graph, Partition& ptt,
+                 const rcHNAGraph& graph, Map& ptt,
                  const int iTargetPtt, const int iNewPtt);
 
-bool projectToGraph(rcContext* ctx, const Partition& ptt, const rcGraphHNA& curGraph,
-                    rcGraphHNA& retGraph);
+bool projectToGraph(rcContext* ctx, const Map& ptt, const rcHNAGraph& curGraph,
+                    rcHNAGraph& retGraph);
 
 
 
-rcGraphHNA* rcAllocGraph(rcAllocHint allocHint)
-{
-    rcGraphHNA* graph = (rcGraphHNA*)rcAlloc(sizeof(rcGraphHNA), allocHint);
-    memset(graph, 0, sizeof(rcGraphHNA));
-    return graph;
-}
-
-bool rcFreeGraph(rcGraphHNA* graph)
-{
-    rcFree(graph->vtxs);
-    graph->vtxs = nullptr;
-
-    rcFree(graph->adjncy);
-    graph->adjncy = nullptr;
-
-    rcFree(graph);
-    graph = nullptr;
-
-    return true;
-}
-
-
-bool rcBuildGraphHNA(rcContext* ctx, rcGraphHNA& graph, int nverts, rcAllocHint allocHint)
-{
-    bool result = false;
-    int nvts = 0;
-    int allocLen = 0;
-    rcVertex* vtxs = nullptr;
-    Weight* adjMatrix = nullptr;
-
-    allocLen = nverts;
-    vtxs = (rcVertex*)rcAlloc(sizeof(rcVertex) * allocLen, allocHint);
-    if (vtxs == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'vtxs' (%d)", allocLen);
-        goto Exit0;
-    }
-    memset(vtxs, 0, sizeof(rcVertex) * allocLen);
-
-    allocLen = nverts * nverts;
-    adjMatrix = (Weight*)rcAlloc(sizeof(Weight) * allocLen, allocHint);
-    if (adjMatrix == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "rcBuildGraph: Out of memory 'adjMatrix' (%d)", allocLen);
-        goto Exit0;
-    }
-    memset(adjMatrix, 0, sizeof(Weight) * allocLen);
-
-    graph.vtxs = vtxs;
-    graph.adjncy = adjMatrix;
-    graph.nvt = nvts;
-
-    result = true;
-Exit0:
-    if (!result)
-    {
-        if (vtxs != nullptr)
-        {
-            rcFree(vtxs);
-            vtxs = nullptr;
-        }
-
-        if (adjMatrix != nullptr)
-        {
-            rcFree(adjMatrix);
-            adjMatrix = nullptr;
-        }
-    }
-    return result;
-}
-
-bool rcBuildGraphHNA(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphHNA& graph)
-{
-    bool result = false;
-    bool retCode = false;
-
-    retCode = rcBuildGraphHNA(ctx, graph, pmesh.npolys, RC_ALLOC_TEMP);
-    if (!retCode)
-    {
-        ctx->log(RC_LOG_ERROR, "rcBuildGraphHNA: 'rcBuildGraphHNA()' fails.");
-        goto Exit0;
-    }
-
-    for (int i = 0, n = graph.nvt; i < n; i++)
-    {
-        if (pmesh.polys[i] == RC_MESH_NULL_IDX)
-            break;
-
-        unsigned short* poly = pmesh.polys + i * pmesh.nvp * 2;
-        unsigned short* padj = poly + pmesh.nvp;
-        for (int j = 0; j < pmesh.nvp; j++)
-        {
-            unsigned short ipoly = padj[j];
-            if (ipoly == RC_MESH_NULL_IDX)
-                continue;
-
-            if (graph.adjncy[i * n + ipoly] == 0)
-            {
-                graph.adjncy[i * n + ipoly] = 1;
-                graph.adjncy[ipoly * n + i] = 1;
-            }
-        }
-
-        rcVertex& v = graph.vtxs[i];
-        v.ipoly = i;
-        v.vwgt = 1;
-        v.nedges = 0; // set in next step
-        v.iedges = i * n;
-        v.cewgt = 0;
-        v.adjwgt = 0; // set in next step
-    }
-
-    for (int i = 0, n = graph.nvt; i < n; i++)
-    {
-        rcVertex& v = graph.vtxs[i];
-        for (int j = 0, m = graph.nvt; j < m; j++)
-        {
-            if (graph.adjncy[i * n + j] > 0)
-            {
-                v.adjwgt += graph.adjncy[i * n + j];
-                v.nedges++;
-            }
-        }//for
-    }//for
-
-
-    result = true;
-Exit0:
-    return result;
-}
-
-
-bool partitionGraph(rcContext* ctx, const rcGraphHNA& graph)
+bool partitionGraph(rcContext* ctx, const rcHNAGraph& graph)
 {
     bool result = false;
     bool retCode = false;
@@ -268,7 +136,7 @@ bool initialPartition(rcContext* ctx, const rcHNAConfig& conf, CoarsenData& inte
 
     //k-way partition
     {
-        const rcGraphHNA& coarsestGraph = *(intermediateData.levelGraphs[nlevel - 1]);
+        const rcHNAGraph& coarsestGraph = *(intermediateData.levelGraphs[nlevel - 1]);
         int nParts = nParts = coarsestGraph.nvt;
 
         allocLen = coarsestGraph.nvt;
@@ -296,10 +164,10 @@ bool initialPartition(rcContext* ctx, const rcHNAConfig& conf, CoarsenData& inte
 
     //build graph
     {
-        rcGraphHNA* step2Graph = nullptr;
-        Partition& step2Patt = intermediateData.step2Ptt;
-        const rcGraphHNA& coarsestGraph = *(intermediateData.levelGraphs[nlevel - 1]);
-        intermediateData.step2Graph = rcAllocGraph(RC_ALLOC_TEMP);
+        rcHNAGraph* step2Graph = nullptr;
+        Map& step2Patt = intermediateData.step2Ptt;
+        const rcHNAGraph& coarsestGraph = *(intermediateData.levelGraphs[nlevel - 1]);
+        intermediateData.step2Graph = rcAllocHNAGraph(RC_ALLOC_TEMP);
         retCode = rcBuildGraphHNA(ctx, *intermediateData.step2Graph, conf.condK, RC_ALLOC_TEMP);
         if (!retCode)
         {
@@ -322,7 +190,7 @@ Exit0:
 }
 
 
-bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf,
+bool coarsening(rcContext* ctx, const rcHNAGraph& graph, const rcHNAConfig& conf,
                 CoarsenData& intermediateData)
 {
     bool result = false;
@@ -333,8 +201,8 @@ bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf
     do
     {
         int allocLen = 0;
-        const rcGraphHNA* curGraph = level == 0 ? (&graph) : intermediateData.levelGraphs[level - 1];
-        rcGraphHNA* coarserGraph = rcAllocGraph(RC_ALLOC_TEMP);
+        const rcHNAGraph* curGraph = level == 0 ? (&graph) : intermediateData.levelGraphs[level - 1];
+        rcHNAGraph* coarserGraph = rcAllocHNAGraph(RC_ALLOC_TEMP);
         if (coarserGraph == nullptr)
         {
             ctx->log(RC_LOG_ERROR, "coarsening: Out of memory 'crtGraph', level=%d", level);
@@ -351,7 +219,7 @@ bool coarsening(rcContext* ctx, const rcGraphHNA& graph, const rcHNAConfig& conf
         memset((int*)match, RC_INVALID_VERTEX, sizeof(match));
 
         allocLen = curGraph->nvt;
-        Partition p = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
+        Map p = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
         if (p == nullptr)
         {
             ctx->log(RC_LOG_ERROR, "coarsening: Out of memory 'p' (%d)", allocLen);
@@ -381,8 +249,8 @@ Exit0:
 }
 
 
-bool coarsenOnce(rcContext* ctx, const rcGraphHNA& curGraph, rcGraphHNA& retCoarserGraph,
-                 Partition& retPartition, Match& retMatch)
+bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoarserGraph,
+                 Map& retPartition, Match& retMatch)
 {
     bool result = false;
     bool retCode = false;
@@ -415,8 +283,8 @@ Exit0:
 }
 
 
-bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch,
-                    Partition retPartition, int& retNewVertNum)
+bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph, int* retMatch,
+                    Map retPartition, int& retNewVertNum)
 {
     bool result = false;
     int* shuffleVerts = nullptr;
@@ -454,7 +322,7 @@ bool heavyEdgeMatch(rcContext* ctx, const rcGraphHNA& graph, int* retMatch,
         if (retMatch[index] == RC_INVALID_INDEX)
             continue;
 
-        rcVertex& v = graph.vtxs[index];
+        rcHNAVertex& v = graph.vtxs[index];
         if (v.nedges == 0)
         {
             retMatch[index] = index;
@@ -508,14 +376,14 @@ bool shuffle(const int size, const int* src, int* dest)
 
 /// Bisect a graph
 bool bisectGraph(rcContext* ctx, const rcHNAConfig& conf,
-                 const rcGraphHNA& graph, Partition& ptt,
+                 const rcHNAGraph& graph, Map& ptt,
                  const int iTargetPtt, const int iNewPtt)
 {
     bool result = false;
     bool retCode = false;
     Weight minEdgeCut = 0xFFFF;
     rcScopedDelete<int> scopedVar((int*)rcAlloc(sizeof(int) * graph.nvt, RC_ALLOC_TEMP));
-    Partition tempPtt = (Partition)scopedVar;
+    Map tempPtt = (Map)scopedVar;
     for (int j = 0, m = conf.gggpTimes; j < m; j++)
     {
         Weight edgeCut = 0;
@@ -549,8 +417,8 @@ Exit0:
 }
 
 
-bool greedyGraphGrowingPartition(rcContext* ctx, const rcGraphHNA& graph,
-                                 const Partition& initPtt, Partition& retPtt,
+bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
+                                 const Map& initPtt, Map& retPtt,
                                  const int iSrcIdex, const int iNewPtt)
 {
     bool result = false;
@@ -668,8 +536,8 @@ Exit0:
 }
 
 
-Weight calcKLGain(const rcGraphHNA& graph, const int iv,
-                  const int targetPtt, const Partition& partition)
+Weight calcKLGain(const rcHNAGraph& graph, const int iv,
+                  const int targetPtt, const Map& partition)
 {
     Weight result = 0;
     const int nvt = graph.nvt;
@@ -699,7 +567,7 @@ Exit0:
 }
 
 
-Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& ptt)
+Weight calcEdgeCut(const rcHNAGraph& graph, const Map& ptt)
 {
     Weight edgeCut = 0;
     const int nvt = graph.nvt;
@@ -722,7 +590,7 @@ Weight calcEdgeCut(const rcGraphHNA& graph, const Partition& ptt)
 }
 
 
-bool refinePartition(const rcGraphHNA& graph, Partition& partition, const int ptt1, const int ptt2)
+bool refinePartition(const rcHNAGraph& graph, Map& partition, const int ptt1, const int ptt2)
 {
     bool result = false;
     bool retCode = false;
@@ -786,7 +654,7 @@ Exit0:
 }
 
 
-bool swapVert(const rcGraphHNA& graph, Partition& ptt, klGainBucketCell* gainTbl,
+bool swapVert(const rcHNAGraph& graph, Map& ptt, klGainBucketCell* gainTbl,
               const int iv, const int destPtt)
 {
     const int nvt = graph.nvt;
@@ -910,14 +778,14 @@ klGainBucketCell* getFirstCell(klGainBucketCell* pCell)
 }
 
 
-bool projectToGraph(rcContext* ctx, const Partition& ptt, const rcGraphHNA& curGraph,
-                    rcGraphHNA& retGraph)
+bool projectToGraph(rcContext* ctx, const Map& ptt, const rcHNAGraph& curGraph,
+                    rcHNAGraph& retGraph)
 {
     bool result = false;
     for (int i = 0, n = curGraph.nvt; i < n; i++)
     {
-        rcVertex* v = curGraph.vtxs + i;
-        rcVertex* u = nullptr;
+        rcHNAVertex* v = curGraph.vtxs + i;
+        rcHNAVertex* u = nullptr;
         int iu1 = ptt[i];
 
         if (iu1 >= retGraph.nvt)
@@ -959,7 +827,7 @@ bool projectToGraph(rcContext* ctx, const Partition& ptt, const rcGraphHNA& curG
 
     for (int i = 0, n = retGraph.nvt; i < n; i++)
     {
-        rcVertex& u = retGraph.vtxs[i];
+        rcHNAVertex& u = retGraph.vtxs[i];
         for (int j = 0, m = retGraph.nvt; j < m; j++)
         {
             if (i != j && retGraph.adjncy[u.iedges + j] > 0)

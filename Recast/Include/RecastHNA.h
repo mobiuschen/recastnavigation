@@ -2,44 +2,42 @@
 #define RECASTHNA_H
 
 #include "RecastAlloc.h"
+#include "HNAGraph.h"
+#include <vector>
 
-
+typedef int Index;
+typedef unsigned short Size;
 typedef unsigned short GraphID;
 typedef unsigned short Weight;
 
 class rcContext;
 
 struct rcPolyMesh;
-struct rcGraphHNA;
 
 static const int RC_INVALID_INDEX = -1;
 static const unsigned int RC_INVALID_VERTEX = 0xFFFF;
 static const int MAX_POLY_NUM = 100000;
 
-struct rcVertex
+struct rcHNAMatch
 {
-    int ipoly;  ///The index of poly in rcPolyMesh.
-    Weight vwgt;   ///The weight of vertex
-    unsigned short nedges; ///The size of the adjacency list of v
-    int iedges; ///The index into Adjncy that is the beginning of the adjacency list of v
-    Weight cewgt;  ///the weight of the edges that have been contracted to create vertex (if vertexis a multinode)
-    Weight adjwgt; ///the sum of the weight of the edges adjacent to v
-};
-
-struct rcGraphHNA
-{
-    rcVertex* vtxs;
-    Weight* adjncy; ///the adjacency lists of the vertices
-    int nvt;    ///The number of vertices
+    Index   match[MAX_POLY_NUM];
+    Size    size;
 };
 
 
-rcGraphHNA* rcAllocGraph(rcAllocHint hint);
+struct rcHNAMap
+{
+    Index   map[MAX_POLY_NUM];
+    Size    size;
+};
 
-bool rcFreeGraph(rcGraphHNA* graph);
+struct klGainBucketLink
+{
+    std::vector<Index>  iv;
+    Weight              gain;
+    klGainBucketLink*   pre;
+    klGainBucketLink*   next;
+};
 
-bool rcBuildGraphHNA(rcContext* ctx, const rcPolyMesh& pmesh, rcGraphHNA& graph);
-
-bool rcBuildGraphHNA(rcContext* ctx, rcGraphHNA& graph, int nverts, rcAllocHint allocHint);
 
 #endif
