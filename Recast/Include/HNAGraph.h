@@ -14,7 +14,7 @@ class rcContext;
 
 struct rcHNAVertex
 {
-    Index           ipoly;  ///The index of poly in rcPolyMesh.
+    unsigned short  ipoly;  ///The index of poly in rcPolyMesh.
     Weight          vwgt;   ///The weight of vertex
     size_t          nedges; ///The size of the adjacency list of v
     Index           iedges; ///The index into Adjncy that is the beginning of the adjacency list of v
@@ -25,7 +25,7 @@ struct rcHNAVertex
 struct rcHNAGraph
 {
     rcHNAVertex*    vtxs;
-    Weight*         adjncy; ///the adjacency lists of the vertices
+    Weight*         adjncy; ///the adjacency table of the vertices
     size_t          nvt;    ///The number of vertices
 };
 
