@@ -3,9 +3,7 @@
 #include "Recast.h"
 #include "RecastAssert.h"
 #include "RecastHNA.h"
-
-typedef int* Map;
-typedef int* Match;
+#include "HNAGraph.h"
 
 static const int MAX_COARSEN_LEVEL = 64;
 
@@ -54,8 +52,7 @@ bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
 
 //////////////////////////////////////////////////////////////////////////
 bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoarserGraph, Map& retPartition, Match& retMatch);
-bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph, int* retMatch, Map retPartition, int& retNewVertNum);
-bool shuffle(const int size, const int* src, int* dest);
+
 Weight calcKLGain(const rcHNAGraph& graph, const int iv, const int targetPartition, const Map& p);
 Weight calcEdgeCut(const rcHNAGraph& graph, const Map& p);
 //////////////////////////////////////////////////////////////////////////
@@ -239,7 +236,7 @@ bool coarsening(rcContext* ctx, const rcHNAGraph& graph, const rcHNAConfig& conf
         intermediateData.levelGraphs[level] = coarserGraph;
         level++;
         radio = ((float)coarserGraph->nvt) / graph.nvt;
-    } while (level < MAX_COARSEN_LEVEL && radio > conf.condR && intermediateData.levelGraphs[level]->nvt > conf.condK);
+    } while (level < MAX_COARSEN_LEVEL && radio > conf.condR && intermediateData.levelGraphs[level]->nvt > (size_t)conf.condK);
 
     intermediateData.nlevel = level;
 
@@ -254,7 +251,7 @@ bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoar
 {
     bool result = false;
     bool retCode = false;
-    int newVertNum = 0;
+    size_t newVertNum = 0;
 
     retCode = heavyEdgeMatch(ctx, curGraph, retMatch, retPartition, newVertNum);
     if (!retCode)
@@ -280,96 +277,6 @@ bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoar
     result = true;
 Exit0:
     return result;
-}
-
-
-bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph, int* retMatch,
-                    Map retPartition, int& retNewVertNum)
-{
-    bool result = false;
-    int* shuffleVerts = nullptr;
-    int allocLen = 0;
-
-    if (retMatch == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "heavyEdgeMatch: 'retMatch' == nullptr");
-        goto Exit0;
-    }
-
-    if (retPartition == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "heavyEdgeMatch: 'retPartition' == nullptr");
-        goto Exit0;
-    }
-
-    allocLen = graph.nvt;
-    shuffleVerts = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
-    if (shuffleVerts == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "heavyEdgeMatch: Out of memory 'shuffleVerts' (%d)", allocLen);
-        goto Exit0;
-    }
-    for (int i = 0, n = graph.nvt; i < n; i++)
-    {
-        shuffleVerts[i] = i;
-    }
-    shuffle(graph.nvt, shuffleVerts, shuffleVerts);
-
-    /// Heavy Edge Matching
-    for (int i = 0, n = graph.nvt; i < n; i++)
-    {
-        int index = shuffleVerts[i];
-        if (retMatch[index] == RC_INVALID_INDEX)
-            continue;
-
-        rcHNAVertex& v = graph.vtxs[index];
-        if (v.nedges == 0)
-        {
-            retMatch[index] = index;
-            retPartition[index] = retNewVertNum;
-            retNewVertNum++;
-            continue;
-        }
-
-        int heaviestEdge = RC_MESH_NULL_IDX;
-        int maxWeight = 0;
-        for (int j = 0, m = graph.nvt; j < m; j++)
-        {
-            Weight w = graph.adjncy[v.iedges + j];
-            if (w > maxWeight)
-            {
-                maxWeight = w;
-                heaviestEdge = j;
-            }
-        }//for
-        retMatch[index] = heaviestEdge;
-        retMatch[heaviestEdge] = index;
-        retPartition[index] = retNewVertNum;
-        retPartition[heaviestEdge] = retNewVertNum;
-        retNewVertNum++;
-    }//for
-
-    result = true;
-Exit0:
-    return result;
-}
-
-
-bool shuffle(const int size, const int* src, int* dest)
-{
-    /// Fisher–Yates shuffle
-    for (int i = 0, n = size; i < n; i++)
-    {
-        dest[i] = src[i];
-    }
-    for (int i = 0, n = size - 3; i < n; i++)
-    {
-        int j = rand() % n;
-        int temp = dest[i];
-        dest[i] = temp;
-        dest[j] = dest[i];
-    }
-    return true;
 }
 
 
@@ -788,7 +695,7 @@ bool projectToGraph(rcContext* ctx, const Map& ptt, const rcHNAGraph& curGraph,
         rcHNAVertex* u = nullptr;
         int iu1 = ptt[i];
 
-        if (iu1 >= retGraph.nvt)
+        if ((size_t)iu1 >= retGraph.nvt)
         {
             ctx->log(RC_LOG_ERROR, "generateNewGraph: Out of length. 'retGraph'");
             goto Exit0;

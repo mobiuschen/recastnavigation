@@ -14,7 +14,6 @@ class rcContext;
 
 struct rcPolyMesh;
 
-static const int RC_INVALID_INDEX = -1;
 static const unsigned int RC_INVALID_VERTEX = 0xFFFF;
 static const int MAX_POLY_NUM = 100000;
 

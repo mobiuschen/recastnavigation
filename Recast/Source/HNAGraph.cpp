@@ -1,11 +1,10 @@
+#include <string.h>
+#include <stdlib.h>
 #include "HNAGraph.h"
 #include "Recast.h"
 #include "RecastAssert.h"
 
-typedef Index* Map;
-typedef Index* Match;
 
-Weight getEdge(rcContext* ctx, const rcHNAGraph& graph, Index v1, Index v2);
 bool shuffle(int size, const int* src, int* const dest);
 
 rcHNAGraph* rcAllocHNAGraph(rcAllocHint allocHint)
@@ -43,7 +42,6 @@ bool rcFreeGraph(rcHNAGraph* pGraph)
 bool rcBuildGraphHNA(rcContext* ctx, rcHNAGraph& graph, int nverts, rcAllocHint allocHint)
 {
     bool            result = false;
-    size_t          nvts = 0;
     int             allocLen = 0;
     rcHNAVertex*    vtxs = nullptr;
     Weight*         adjncy = nullptr;
@@ -68,7 +66,7 @@ bool rcBuildGraphHNA(rcContext* ctx, rcHNAGraph& graph, int nverts, rcAllocHint 
 
     graph.vtxs = vtxs;
     graph.adjncy = adjncy;
-    graph.nvt = nvts;
+    graph.nvt = nverts;
 
     result = true;
 Exit0:
@@ -123,7 +121,7 @@ bool rcBuildGraphHNA(rcContext* ctx, const rcPolyMesh& pmesh, rcHNAGraph& graph)
         }
 
         rcHNAVertex& v = graph.vtxs[i];
-        v.ipoly = i;
+        v.ipoly = (unsigned short)i;
         v.vwgt = 1;
         v.nedges = 0; // set in next step
         v.iedges = i * n;
@@ -157,7 +155,6 @@ rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph,
     bool    result = false;
     size_t  retVertNum = 0;
     rcHNAGraph* pRetGraph = rcAllocHNAGraph(RC_ALLOC_PERM);
-    //rcHNAGraph& retGraph = *pRetGraph;
 
     rcIgnoreUnused(ctx);
 
@@ -166,7 +163,7 @@ rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph,
     
     for (int i = 0, n = srcGraph.nvt; i < n; i++)
     {
-        retVertNum = map[i] >= retVertNum ? (map[i] + 1) : retVertNum;
+        retVertNum = (size_t)(map[i]) >= retVertNum ? (map[i] + 1) : retVertNum;
     }
 
     rcBuildGraphHNA(ctx, *pRetGraph, retVertNum, RC_ALLOC_PERM);
@@ -201,7 +198,7 @@ rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph,
         else if (i < iv2)
         {
             rcHNAVertex& v2 = srcGraph.vtxs[iv2];
-            Weight innerEdgeWgt = getEdge(ctx, srcGraph, i, iv2);
+            Weight innerEdgeWgt = rcGraphGetEdge(ctx, srcGraph, i, iv2);
             u.cewgt = v.cewgt + v2.cewgt + innerEdgeWgt;
             u.adjwgt = v.adjwgt + v2.adjwgt - 2 * innerEdgeWgt;
         }
@@ -218,7 +215,7 @@ rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph,
             if (iu == iu2)
                 continue;
 
-            wgt = getEdge(ctx, srcGraph, i, j);
+            wgt = rcGraphGetEdge(ctx, srcGraph, i, j);
             pRetGraph->adjncy[iu * n + iu2] += wgt;
             pRetGraph->adjncy[iu2 * n + iu] += wgt;
         }
@@ -227,11 +224,12 @@ rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph,
 
     for (int i = 0, n = pRetGraph->nvt; i < n; i++)
     {
-        for (int j = 0; j < n; j++)
+        for (int j = i + 1; j < n; j++)
         {
-            if (i != j && getEdge(ctx, *pRetGraph, i, j) > 0)
+            if (rcGraphGetEdge(ctx, *pRetGraph, i, j) > 0)
             {
                 pRetGraph->vtxs[i].nedges++;
+                pRetGraph->vtxs[j].nedges++;
             }
         }
     }//for
@@ -247,14 +245,47 @@ Exit0:
 }
 
 
-bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph, 
+bool heavyEdgeMatch(rcContext* ctx, 
+                    const rcHNAGraph& graph,
                     Match const retMatch,
-                    Map const retPartition, 
-                    int& retNewVertNum)
+                    Map const retPartition,
+                    size_t& retNewVertNum)
 {
     bool result = false;
-    int* shuffleVerts = nullptr;
-    int allocLen = 0;
+    size_t allocLen = graph.nvt;
+    Index* vertOrders = (Index*)rcAlloc(sizeof(Index) * allocLen, RC_ALLOC_TEMP);
+    
+    if (vertOrders == nullptr)
+    {
+        ctx->log(RC_LOG_ERROR, "heavyEdgeMatch: Out of memory 'vertOrders' (%d)", allocLen);
+        goto Exit0;
+    }
+
+    for (int i = 0, n = graph.nvt; i < n; i++)
+    {
+        vertOrders[i] = i;
+    }
+    shuffle(graph.nvt, vertOrders, vertOrders);
+
+    result = heavyEdgeMatch(ctx, graph, vertOrders, retMatch, retPartition, retNewVertNum);
+Exit0:
+    if (vertOrders != nullptr)
+    {
+        rcFree(vertOrders);
+        vertOrders = nullptr;
+    }
+    return result;
+}
+
+
+bool heavyEdgeMatch(rcContext* ctx, 
+                    const rcHNAGraph& graph, 
+                    const Index* vertOrders,
+                    Match const retMatch,
+                    Map const retPartition, 
+                    size_t& retNewVertNum)
+{
+    bool result = false;
 
     if (retMatch == nullptr)
     {
@@ -268,24 +299,15 @@ bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph,
         goto Exit0;
     }
 
-    allocLen = graph.nvt;
-    shuffleVerts = (int*)rcAlloc(sizeof(int) * allocLen, RC_ALLOC_TEMP);
-    if (shuffleVerts == nullptr)
-    {
-        ctx->log(RC_LOG_ERROR, "heavyEdgeMatch: Out of memory 'shuffleVerts' (%d)", allocLen);
-        goto Exit0;
-    }
-    for (int i = 0, n = graph.nvt; i < n; i++)
-    {
-        shuffleVerts[i] = i;
-    }
-    shuffle(graph.nvt, shuffleVerts, shuffleVerts);
+    memset(retMatch, RC_INVALID_INDEX, graph.nvt * sizeof(Index));
+    memset(retPartition, RC_INVALID_INDEX, graph.nvt * sizeof(Index));
 
-    /// Heavy Edge Matching
+    // Heavy Edge Matching
+    retNewVertNum = 0;
     for (int i = 0, n = graph.nvt; i < n; i++)
     {
-        int index = shuffleVerts[i];
-        if (retMatch[index] == RC_INVALID_INDEX)
+        int index = vertOrders[i];
+        if (retMatch[index] != RC_INVALID_INDEX)
             continue;
 
         rcHNAVertex& v = graph.vtxs[index];
@@ -297,11 +319,14 @@ bool heavyEdgeMatch(rcContext* ctx, const rcHNAGraph& graph,
             continue;
         }
 
-        int heaviestEdge = RC_MESH_NULL_IDX;
+        int heaviestEdge = index;
         int maxWeight = 0;
         for (int j = 0, m = graph.nvt; j < m; j++)
-        {
-            Weight w = graph.adjncy[v.iedges + j];
+        {            
+            if (index == j || retMatch[j] != RC_INVALID_INDEX)
+                continue;
+
+            Weight w = rcGraphGetEdge(ctx, graph, index, j);
             if (w > maxWeight)
             {
                 maxWeight = w;
@@ -322,16 +347,29 @@ Exit0:
 
 
 
-Weight getEdge(rcContext* ctx, const rcHNAGraph& graph, Index v1, Index v2) 
+Weight rcGraphGetEdge(rcContext* ctx, const rcHNAGraph& graph, Index v1, Index v2)
 {
+    rcIgnoreUnused(ctx);
     if (v1 == RC_INVALID_INDEX || v2 == RC_INVALID_INDEX)
         return 0;
 
-    if (v1 < 0 || v1 >= graph.nvt || v2 < 0 || v2 >= graph.nvt)
+    if (v1 < 0 || (size_t)v1 >= graph.nvt || v2 < 0 || (size_t)v2 >= graph.nvt)
         return 0;
 
     return graph.adjncy[v1 * graph.nvt + v2];
 }
+
+
+bool rcGraphSetEdge(rcContext* ctx, const rcHNAGraph& graph, Index v1, Index v2, Weight ewgt)
+{
+    rcIgnoreUnused(ctx);
+    graph.adjncy[v1 * graph.nvt + v2] = ewgt;
+    graph.adjncy[v2 * graph.nvt + v1] = ewgt;
+    return true;
+}
+
+
+
 
 
 bool shuffle(int size, const int* src, int* const dest)
@@ -350,6 +388,3 @@ bool shuffle(int size, const int* src, int* const dest)
     }
     return true;
 }
-
-
-

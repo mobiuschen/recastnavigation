@@ -1,6 +1,7 @@
 #include "catch.hpp"
 
 #include "Recast.h"
+#include "HNAGraph.h"
 
 TEST_CASE("rcSwap")
 {
@@ -827,4 +828,98 @@ TEST_CASE("rcRasterizeTriangles")
 		REQUIRE(solid.spans[1 + 2 * width]->area == 2);
 		REQUIRE(!solid.spans[1 + 2 * width]->next);
 	}
+}
+
+
+TEST_CASE("heavyEdgeMatching")
+{
+    rcContext ctx;
+    rcHNAGraph* pGraph = rcAllocHNAGraph(RC_ALLOC_PERM);
+    const int nvt = 4;
+    Index vertOrders[] = {0, 1, 2, 3};
+
+    if (pGraph == nullptr)
+        goto Exit0;
+
+    rcBuildGraphHNA(&ctx, *pGraph, nvt, RC_ALLOC_PERM);
+    for (int i = 0; i < nvt; i++)
+    {
+        pGraph->vtxs[i].ipoly   = RC_MESH_NULL_IDX;
+        pGraph->vtxs[i].vwgt    = Weight(i + 1);
+        pGraph->vtxs[i].nedges  = 0;
+        pGraph->vtxs[i].iedges  = nvt * i;
+        pGraph->vtxs[i].cewgt   = 0;
+        pGraph->vtxs[i].adjwgt  = 0;
+
+        for (int j = 0; j < nvt; j++)
+        {
+            pGraph->adjncy[i * nvt + j] = 0;
+        }
+    }
+    pGraph->vtxs[0].nedges = 2;
+    pGraph->vtxs[1].nedges = 2;
+    pGraph->vtxs[2].nedges = 3;
+    pGraph->vtxs[3].nedges = 1;
+
+    pGraph->vtxs[0].adjwgt = 3;
+    pGraph->vtxs[1].adjwgt = 4;
+    pGraph->vtxs[2].adjwgt = 9;
+    pGraph->vtxs[3].adjwgt = 4;
+
+    rcGraphSetEdge(&ctx, *pGraph, 0, 1, 1);
+    rcGraphSetEdge(&ctx, *pGraph, 0, 2, 2);
+    rcGraphSetEdge(&ctx, *pGraph, 1, 2, 3);
+    rcGraphSetEdge(&ctx, *pGraph, 2, 3, 4);
+
+
+    SECTION("HNA graph matching")
+    {
+        Index retMap[nvt];
+        Index retMatch[nvt];
+        rcHNAGraph* pNewGraph = nullptr;
+
+        size_t num = 0;
+        Index orders[] = {0, 1, 2, 3};
+        REQUIRE(heavyEdgeMatch(&ctx, *pGraph, orders, retMatch, retMap, num));
+        REQUIRE(retMap[0] == 0);
+        REQUIRE(retMap[1] == 1);
+        REQUIRE(retMap[2] == 0);
+        REQUIRE(retMap[3] == 2);
+        REQUIRE(retMatch[0] == 2);
+        REQUIRE(retMatch[1] == 1);
+        REQUIRE(retMatch[2] == 0);
+        REQUIRE(retMatch[3] == 3);
+        REQUIRE(num == 3);
+
+        pNewGraph = rcApplyMatching(&ctx, *pGraph, retMatch, retMap);
+        REQUIRE(pNewGraph != nullptr);
+        REQUIRE(pNewGraph->nvt == num);
+        
+        REQUIRE(pNewGraph->vtxs[0].adjwgt   == 8);
+        REQUIRE(pNewGraph->vtxs[0].cewgt    == 2);
+        REQUIRE(pNewGraph->vtxs[0].nedges   == 2);
+        REQUIRE(pNewGraph->vtxs[0].vwgt     == 4);
+
+        REQUIRE(pNewGraph->vtxs[1].adjwgt   == 4);
+        REQUIRE(pNewGraph->vtxs[1].cewgt    == 0);
+        REQUIRE(pNewGraph->vtxs[1].nedges   == 1);
+        REQUIRE(pNewGraph->vtxs[1].vwgt     == 2);
+
+        REQUIRE(pNewGraph->vtxs[2].adjwgt   == 4);
+        REQUIRE(pNewGraph->vtxs[2].cewgt    == 0);
+        REQUIRE(pNewGraph->vtxs[2].nedges   == 1);
+        REQUIRE(pNewGraph->vtxs[2].vwgt     == 4);
+
+
+        REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 0, 1) == 4);
+        REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 0, 2) == 4);
+        REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 1, 2) == 0);
+    }
+
+Exit0:
+    if (pGraph != nullptr)
+    {
+        rcFree(pGraph);
+        pGraph = nullptr;
+    }
 }

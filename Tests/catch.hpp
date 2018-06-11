@@ -10389,7 +10389,10 @@ namespace Catch {
 
 // Standard C/C++ main entry point
 int main (int argc, char * argv[]) {
-    return Catch::Session().run( argc, argv );
+    int result = Catch::Session().run( argc, argv );
+    printf("Press ENTER to exit.");
+    getchar();
+    return result;
 }
 
 #else // __OBJC__
