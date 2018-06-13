@@ -5,10 +5,7 @@
 #include "HNAGraph.h"
 #include <vector>
 
-typedef int Index;
-typedef unsigned short Size;
 typedef unsigned short GraphID;
-typedef unsigned short Weight;
 
 class rcContext;
 
@@ -20,14 +17,14 @@ static const int MAX_POLY_NUM = 100000;
 struct rcHNAMatch
 {
     Index   match[MAX_POLY_NUM];
-    Size    size;
+    size_t  size;
 };
 
 
 struct rcHNAMap
 {
     Index   map[MAX_POLY_NUM];
-    Size    size;
+    size_t  size;
 };
 
 struct klGainBucketLink

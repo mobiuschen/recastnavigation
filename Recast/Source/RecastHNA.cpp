@@ -53,8 +53,6 @@ bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
 //////////////////////////////////////////////////////////////////////////
 bool coarsenOnce(rcContext* ctx, const rcHNAGraph& curGraph, rcHNAGraph& retCoarserGraph, Map& retPartition, Match& retMatch);
 
-Weight calcKLGain(const rcHNAGraph& graph, const int iv, const int targetPartition, const Map& p);
-Weight calcEdgeCut(const rcHNAGraph& graph, const Map& p);
 //////////////////////////////////////////////////////////////////////////
 
 
@@ -303,7 +301,7 @@ bool bisectGraph(rcContext* ctx, const rcHNAConfig& conf,
             goto Exit0;
         }
 
-        edgeCut = calcEdgeCut(graph, tempPtt);
+        edgeCut = calcEdgeCut(ctx, graph, tempPtt);
         if (minEdgeCut > edgeCut)
         {
             minEdgeCut = edgeCut;
@@ -376,7 +374,7 @@ bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
             int edge = graph.adjncy[iv * graph.nvt + iu];
             if (edge > 0 && retPtt[iu] == iSrcIdex)
             {
-                Weight gain = calcKLGain(graph, iu, iNewPtt, retPtt);
+                Weight gain = calcKLGain(ctx, graph, iu, retPtt);
                 klGainBucketCell* pCell = gainTbl + i;
                 pCell->gain = gain;
                 if (pLink == nullptr)
@@ -421,7 +419,7 @@ bool greedyGraphGrowingPartition(rcContext* ctx, const rcHNAGraph& graph,
             int edge = graph.adjncy[iv * graph.nvt + iu];
             if (edge > 0 && retPtt[iu] == iSrcIdex)
             {
-                Weight gain = calcKLGain(graph, iu, iNewPtt, retPtt);
+                Weight gain = calcKLGain(ctx, graph, iu, retPtt);
                 klGainBucketCell* pCell = gainTbl + i;
                 updateCellGain(pCell, gain);
             }
@@ -442,59 +440,6 @@ Exit0:
     return result;
 }
 
-
-Weight calcKLGain(const rcHNAGraph& graph, const int iv,
-                  const int targetPtt, const Map& partition)
-{
-    Weight result = 0;
-    const int nvt = graph.nvt;
-    const int oriPtt = partition[iv];
-
-    rcAssert(oriPtt != targetPtt);
-    if (oriPtt == targetPtt)
-        goto Exit0;
-
-    for (int i = 0, n = nvt; i < n; i++)
-    {
-        if (i == iv)
-            continue;
-
-        if (partition[i] == oriPtt)
-        {
-            result -= graph.adjncy[iv * nvt + i];
-        }
-        else if (partition[i] == targetPtt)
-        {
-            result += graph.adjncy[iv * nvt + i];
-        }
-    }//for
-
-Exit0:
-    return result;
-}
-
-
-Weight calcEdgeCut(const rcHNAGraph& graph, const Map& ptt)
-{
-    Weight edgeCut = 0;
-    const int nvt = graph.nvt;
-
-    for (int i = 0, n = nvt; i < n; i++)
-    {
-        for (int j = 0, m = nvt; j < m; j++)
-        {
-            if (j >= i)
-                break;
-
-            if (ptt[i] == ptt[j])
-                continue;
-
-            edgeCut += graph.adjncy[i * nvt + j];
-        }
-    }
-
-    return edgeCut;
-}
 
 
 bool refinePartition(const rcHNAGraph& graph, Map& partition, const int ptt1, const int ptt2)
@@ -525,10 +470,9 @@ bool refinePartition(const rcHNAGraph& graph, Map& partition, const int ptt1, co
     for (int i = 0, n = nMap; i < n; i++)
     {
         int iv = map[i];
-        int descPtt = partition[iv] == ptt1 ? ptt2 : ptt1;
         klGainBucketCell* pCell = gainTbl + i;
         pCell->iv = iv;
-        pCell->gain = calcKLGain(graph, iv, descPtt, partition);
+        pCell->gain = calcKLGain(nullptr, graph, iv, partition);
         pCell->pre = nullptr;
         pCell->next = nullptr;
         if (pLink == nullptr)
@@ -572,15 +516,13 @@ bool swapVert(const rcHNAGraph& graph, Map& ptt, klGainBucketCell* gainTbl,
     for (int i = 0, n = nvt; i < n; i++)
     {
         klGainBucketCell* pCell = nullptr;
-        int ptt2 = 0;
         Weight gain = 0;
         if (i == iv || graph.adjncy[iv * nvt + i] == 0)
             continue;
 
         // update adjacency vertex gains
         pCell = gainTbl + i;
-        ptt2 = ptt[i] == ptt1 ? destPtt : ptt1;
-        gain = calcKLGain(graph, i, ptt2, ptt);
+        gain = calcKLGain(nullptr, graph, i, ptt);
         updateCellGain(pCell, gain);
     }
 

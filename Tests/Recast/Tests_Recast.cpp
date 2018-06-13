@@ -831,7 +831,7 @@ TEST_CASE("rcRasterizeTriangles")
 }
 
 
-TEST_CASE("heavyEdgeMatching")
+TEST_CASE("HNA")
 {
     rcContext ctx;
     rcHNAGraph* pGraph = rcAllocHNAGraph(RC_ALLOC_PERM);
@@ -870,8 +870,7 @@ TEST_CASE("heavyEdgeMatching")
     rcGraphSetEdge(&ctx, *pGraph, 0, 2, 2);
     rcGraphSetEdge(&ctx, *pGraph, 1, 2, 3);
     rcGraphSetEdge(&ctx, *pGraph, 2, 3, 4);
-
-
+    
     SECTION("HNA graph matching")
     {
         Index retMap[nvt];
@@ -891,7 +890,7 @@ TEST_CASE("heavyEdgeMatching")
         REQUIRE(retMatch[3] == 3);
         REQUIRE(num == 3);
 
-        pNewGraph = rcApplyMatching(&ctx, *pGraph, retMatch, retMap);
+        pNewGraph = rcApplyMatching(&ctx, *pGraph, retMatch, retMap, num);
         REQUIRE(pNewGraph != nullptr);
         REQUIRE(pNewGraph->nvt == num);
         
@@ -910,11 +909,18 @@ TEST_CASE("heavyEdgeMatching")
         REQUIRE(pNewGraph->vtxs[2].nedges   == 1);
         REQUIRE(pNewGraph->vtxs[2].vwgt     == 4);
 
-
         REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 0, 1) == 4);
         REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 0, 2) == 4);
         REQUIRE(rcGraphGetEdge(&ctx, *pNewGraph, 1, 2) == 0);
+
+        REQUIRE(calcEdgeCut(&ctx, *pGraph, retMap) == 8);
+        REQUIRE(calcKLGain(&ctx, *pGraph, 0, retMap) == -1);
+        REQUIRE(calcKLGain(&ctx, *pGraph, 1, retMap) == 4);
+        REQUIRE(calcKLGain(&ctx, *pGraph, 2, retMap) == 5);
+        REQUIRE(calcKLGain(&ctx, *pGraph, 3, retMap) == 4);
     }
+
+
 
 Exit0:
     if (pGraph != nullptr)

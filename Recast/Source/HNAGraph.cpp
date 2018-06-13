@@ -150,23 +150,17 @@ Exit0:
 
 
 rcHNAGraph* rcApplyMatching(rcContext* ctx, const rcHNAGraph& srcGraph, 
-                            const Match match, const Map map)
+                            ConstMatch match, ConstMap map, size_t newVertNum)
 {
     bool    result = false;
-    size_t  retVertNum = 0;
     rcHNAGraph* pRetGraph = rcAllocHNAGraph(RC_ALLOC_PERM);
 
     rcIgnoreUnused(ctx);
 
     if (pRetGraph == nullptr)
         goto Exit0;
-    
-    for (int i = 0, n = srcGraph.nvt; i < n; i++)
-    {
-        retVertNum = (size_t)(map[i]) >= retVertNum ? (map[i] + 1) : retVertNum;
-    }
 
-    rcBuildGraphHNA(ctx, *pRetGraph, retVertNum, RC_ALLOC_PERM);
+    rcBuildGraphHNA(ctx, *pRetGraph, newVertNum, RC_ALLOC_PERM);
 
     for (int i = 0, n = pRetGraph->nvt; i < n; i++)
     {
@@ -370,6 +364,26 @@ bool rcGraphSetEdge(rcContext* ctx, const rcHNAGraph& graph, Index v1, Index v2,
 
 
 
+Weight calcEdgeCut(rcContext* ctx, const rcHNAGraph& graph, ConstMap partition)
+{
+    Weight edgeCut = 0;
+
+    rcIgnoreUnused(ctx);
+
+    for (int i = 0, n = graph.nvt; i < n; i++)
+    {
+        for (int j = i + 1; j < n; j++)
+        {
+            if (partition[i] == partition[j])
+                continue;
+            
+            edgeCut += rcGraphGetEdge(ctx, graph, i, j);
+        }
+    }
+
+    return edgeCut;
+}
+
 
 
 bool shuffle(int size, const int* src, int* const dest)
@@ -387,4 +401,24 @@ bool shuffle(int size, const int* src, int* const dest)
         dest[j] = dest[i];
     }
     return true;
+}
+
+
+Weight calcKLGain(rcContext* ctx, const rcHNAGraph& graph, Index v, ConstMap partition)
+{
+    Weight result = 0;
+    Index pv = partition[v];
+    for (int i = 0, n = graph.nvt; i < n; i++)
+    {
+        if (i == v)
+            continue;
+
+        if (partition[i] == pv)
+            result -= rcGraphGetEdge(ctx, graph, i, v);
+        else
+            result += rcGraphGetEdge(ctx, graph, i, v);
+    }//for
+
+//Exit0:
+    return result;
 }
